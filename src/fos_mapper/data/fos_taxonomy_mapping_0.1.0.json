@@ -1,0 +1,87 @@
+{
+    "settings": {
+        "number_of_shards": 8,
+        "number_of_replicas": 0
+    },
+    "mappings": {
+        "properties": {
+            "level_1" : {
+                "type" : "text",
+                "fields" : {
+                    "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                    }
+                }
+            },
+            "level_2" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "level_3" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "level_4" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "level_4_id" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "level_5" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "level_5_id" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "level_6" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "fos_vector": {
+                "type": "dense_vector",
+                "index": "true",
+                "similarity": "cosine"
+            }
+        }
+    }
+}
