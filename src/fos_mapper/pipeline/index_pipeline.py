@@ -15,7 +15,9 @@ args = [
     "--embedding_model", "instructor-xl",
     "--es_host", "localhost",
     "--es_port", "9200" ,
-    "--batch_size", "16"
+    "--batch_size", "16",
+    "--cache_folder", "/storage1/sotkot/llm_models",
+    "--delete_index", "False"
 ]
 """
 
@@ -23,6 +25,7 @@ import os
 import argparse
 import json
 import importlib.resources
+import distutils.util
 
 from tqdm import tqdm
 from elasticsearch.helpers import bulk
@@ -31,12 +34,13 @@ from InstructorEmbedding import INSTRUCTOR
 
 
 ##############################
-DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0]), "data") 
+# DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0]), "data") # TODO uncomment when converted to a package
+DATA_PATH = os.path.join("/storage2/sotkot/scinobo-taxonomy-mapper/src/fos_mapper/data")
 ##############################
 
 
 class Indexer:
-    def __init__(self, index_name, ips, mapping=None, batch_size=1000, delete_index=False, mapping_type=None):
+    def __init__(self, index_name, ips, mapping=None, batch_size=20, delete_index=False, mapping_type=None):
         """ ELASTIC CONNECTION """
         self.es = Elasticsearch(ips, verify_certs=True, timeout=150, max_retries=10, retry_on_timeout=True)
         self.index_name = index_name
@@ -100,7 +104,7 @@ class Indexer:
         self.actions.append(self.create_an_action(
             dato=doc, 
             op_type=op_type,
-            the_id=doc['id'] if the_id is None else the_id
+            the_id=the_id
         ))
         self.upload_to_elk(finished=False)
         
@@ -111,6 +115,8 @@ def parse_args():
     parser.add_argument("--embedding_model", type=str, help="Name of the embedding model.")
     parser.add_argument("--es_host", type=str, help="Elasticsearch host.")
     parser.add_argument("--es_port", type=str, help="Elasticsearch port.")
+    parser.add_argument("--cache_folder", type=str, help="Cache folder to store the embeddings.")
+    parser.add_argument("--delete_index", type=lambda x:bool(distutils.util.strtobool(x)), default=False, help="Delete the index if it exists.")
     parser.add_argument("--batch_size", type=int, default=1000, help="Batch size to index the data.")
     return parser.parse_args()
 
@@ -146,26 +152,51 @@ def main():
     index_name = args.index_name
     embedding_model = args.embedding_model
     batch_size = args.batch_size
+    cache_folder = args.cache_folder
+    delete_index = args.delete_index
     es_host = args.es_host
     es_port = args.es_port
     ################
     # load data
     fos_taxonomy = load_json(os.path.join(DATA_PATH, "fos_taxonomy_0.1.0.json"))
     fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, "fos_taxonomy_instruction_0.1.0.json"))
-    fos_taxonomy_mapping = load_json(os.path.join(DATA_PATH, "fos_taxonomy_instruction_0.1.0.json"))
+    fos_taxonomy_mapping = load_json(os.path.join(DATA_PATH, "fos_taxonomy_mapping_0.1.0.json"))
     ################
     indexer = Indexer(
         index_name=index_name,
-        ips=[f"{es_host}:{es_port}"],
+        ips=[f"http://{es_host}:{es_port}"],
         mapping=fos_taxonomy_mapping,
-        delete_index=True
+        delete_index=delete_index
     )
     # split the taxonomy into batches
     batches = [fos_taxonomy[i:i + batch_size] for i in range(0, len(fos_taxonomy), batch_size)]
     # init the model
-    model = INSTRUCTOR(embedding_model)
+    model = INSTRUCTOR(embedding_model, cache_folder=cache_folder, device="cpu")
     for batch in tqdm(batches, desc="Parsing the batches of the taxonomy"):
-        print()
+        # pack the data for embedding
+        data = [
+            [
+                fos_taxonomy_instruction["embed_instruction"],
+                f"{b['level_2']}/{b['level_3']}/{b['level_4']}/{b['level_6'].replace(' ---- ', ', ')}"    
+            ] for b in batch
+        ]
+        data_embeddings = compute_embeddings(model, data)
+        batch_to_index = [
+            {
+                "level_1": b["level_1"],
+                "level_2": b["level_2"],
+                "level_3": b["level_3"],
+                "level_4": b["level_4"],
+                "level_4_id": b["level_4_id"],
+                "level_5_id": b["level_5_id"],
+                "level_5": b["level_5"],
+                "level_6": b["level_6"],
+                "fos_vector": e.tolist()
+            } for b, e in zip(batch, data_embeddings)
+        ]
+        for doc in batch_to_index:
+            indexer.process_one_dato(doc, op_type="index")
+    indexer.upload_to_elk(finished=True)
     
 
 if __name__ == "__main__":
