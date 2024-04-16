@@ -24,7 +24,6 @@ args = [
 import os
 import argparse
 import json
-import importlib.resources
 import distutils.util
 
 from tqdm import tqdm

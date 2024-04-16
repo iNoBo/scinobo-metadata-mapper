@@ -22,7 +22,7 @@ import importlib.resources
 from logging.handlers import RotatingFileHandler
 
 
-LOGGING_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0]), "logs")
+LOGGING_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "logs")
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 
 
@@ -46,7 +46,7 @@ def setup_root_logger():
     console.setFormatter(formatter)
     # check if the logs directory exists
     os.makedirs(LOGGING_PATH, exist_ok=True)
-    file = RotatingFileHandler(filename=os.path.join(LOGGING_PATH, "fastapi-ci-logs.log"), mode='a', maxBytes=15000000, backupCount=5)
+    file = RotatingFileHandler(filename=os.path.join(LOGGING_PATH, "fastapi-fos-mapper-logs.log"), mode='a', maxBytes=15000000, backupCount=5)
     file.setFormatter(formatter)
     logger.addHandler(console)
     logger.addHandler(file)

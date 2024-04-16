@@ -5,6 +5,7 @@ __pycache__/
 
 # folders
 .vscode
+src/fos_mapper/model_artefacts
 
 # C extensions
 *.so
