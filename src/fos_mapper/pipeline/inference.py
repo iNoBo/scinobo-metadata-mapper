@@ -57,7 +57,7 @@ class Retriever():
     def embed_query(self, query):
         return self.model.encode(query, show_progress_bar=True)
     
-    def search_elastic_dense(self, query, approach="knn"):
+    def search_elastic_dense(self, query, how_many, approach="knn"):
         # embed the query using the instructor model
         query_emb = self.embed_query(
             [[self.instruction,query]]
@@ -66,7 +66,7 @@ class Retriever():
             res = self.es.search(
                 index=self.index,
                 body={
-                    "size": 10,
+                    "size": how_many,
                     "query": {
                         "knn": {
                             "field": "fos_vector",

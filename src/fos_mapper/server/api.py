@@ -56,6 +56,7 @@ class MapperInferRequest(BaseModel):
     # based on the request config, the request data should contain the following fields
     id: str
     text: str | None = ""
+    k: int = 10
     approach: ApproachName = ApproachName.knn
     # add an example for the request data
     model_config = {
@@ -167,6 +168,7 @@ def infer_mapper(request_data: MapperInferRequest):
         # infer the field of studies
         res = retriever.search_elastic_dense(
             query=request_data['text'].lower(),
+            how_many=request_data['k'],
             approach=request_data['approach'].value
         )
         retrieved_results = [
