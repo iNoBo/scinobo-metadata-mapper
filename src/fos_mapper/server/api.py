@@ -10,6 +10,7 @@ import traceback
 import os
 import importlib.resources
 import json
+import argparse
 
 from typing import Union
 from fastapi import FastAPI, HTTPException
@@ -26,6 +27,17 @@ def load_json(path):
     with open(path, "r") as f:
         return json.load(f)
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="FoS Taxonomy Mapper API")
+    parser.add_argument("--es_passwd", type=str, required=True, help="Elastic search password.")
+    parser.add_argument("--ca_certs", type=str, required=True, help="Path to the ca certs.")
+    return parser.parse_args()
+
+args = parse_args()
+
+ES_PASSWD = args.es_passwd
+CA_CERTS_PATH = args.ca_certs
 DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
 MODEL_ARTEFACTS_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "model_artefacts")
 LOGGING_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "logs")
@@ -39,14 +51,16 @@ fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, "fos_taxonomy_instr
 # and reveice all the variables as arguments or from a yaml file.
 retriever = Retriever(
     ips = [
-        "http://localhost:9200"
+        "https://localhost:9200"
     ],
     index="fos_taxonomy_01_embed",
     embedding_model="hkunlp/instructor-xl",
-    device="cpu",
+    device="cuda",
     instruction=fos_taxonomy_instruction['query_instruction'],
     cache_dir=MODEL_ARTEFACTS_PATH,
-    log_path=LOGGING_PATH
+    log_path=LOGGING_PATH,
+    ca_certs_path=CA_CERTS_PATH,
+    es_passwd=ES_PASSWD
 )
 
 
@@ -74,6 +88,7 @@ class MapperInferRequest(BaseModel):
         "text": "quantum algebra",
         "approach": "knn"
     }
+  
     
 class MappedResults(BaseModel):
     # based on the request config, the response data should contain the following fields
@@ -85,6 +100,7 @@ class MappedResults(BaseModel):
     level_5_id: str
     level_5: str
     level_6: str
+  
     
 class MapperInferRequestResponse(BaseModel):
     # based on the request config, the response data should contain the following fields
@@ -125,7 +141,6 @@ def echo(request_data: MapperInferRequest):
 
 @app.post("/infer_mapper", response_model=MapperInferRequestResponse)
 def infer_mapper(request_data: MapperInferRequest):
-    # TODO: update the docstring, to be more informative.
     """
     Infer the field of science mapping of a query based on the embeddings provided by Instructor. 
 
@@ -153,8 +168,13 @@ def infer_mapper(request_data: MapperInferRequest):
             query=request_data['text'],
             approach=request_data['approach'].value
         )
-        LOGGER.info(f"Response data: {request_data}") # this is formatted based on the BaseModel classes
-        return request_data
+        ret = {
+            "id": request_data['id'],
+            "text": request_data['text'],
+            "retrieved_results": res
+        }
+        LOGGER.info(f"Response data: {ret}") # this is formatted based on the BaseModel classes
+        return MapperInferRequestResponse(**ret)
     except Exception as e:
         LOGGER.error(f"Error: {e}")
         raise HTTPException(status_code=400, detail={"success": 0, "message": f"{str(e)}\n{traceback.format_exc()}"})

@@ -30,7 +30,9 @@ class Retriever():
         cache_dir,
         embedding_model,
         instruction,
-        log_path
+        log_path,
+        ca_certs_path,
+        es_passwd
     ):
         self.device = device
         self.stop_ws = stopwords.words('english')
@@ -38,11 +40,11 @@ class Retriever():
         self.model = INSTRUCTOR(embedding_model, cache_folder=cache_dir, device=self.device)
         self.instruction = instruction
         self.es = Elasticsearch(
-            ips,
-            verify_certs=True,
-            timeout=150,
-            max_retries=10,
-            retry_on_timeout=True
+            ips, 
+            ca_certs=ca_certs_path, 
+            max_retries=10, 
+            retry_on_timeout=True, 
+            basic_auth=('elastic', es_passwd)
         )
         self.index = index
         logging.basicConfig(
