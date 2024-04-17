@@ -166,7 +166,7 @@ def infer_mapper(request_data: MapperInferRequest):
             return MapperInferRequestResponse(**ret)
         # infer the field of studies
         res = retriever.search_elastic_dense(
-            query=request_data['text'],
+            query=request_data['text'].lower(),
             approach=request_data['approach'].value
         )
         retrieved_results = [
