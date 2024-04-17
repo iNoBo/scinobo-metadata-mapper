@@ -30,7 +30,9 @@ class Retriever():
         cache_dir,
         embedding_model,
         instruction,
-        log_path
+        log_path,
+        ca_certs_path,
+        es_passwd
     ):
         self.device = device
         self.stop_ws = stopwords.words('english')
@@ -38,11 +40,11 @@ class Retriever():
         self.model = INSTRUCTOR(embedding_model, cache_folder=cache_dir, device=self.device)
         self.instruction = instruction
         self.es = Elasticsearch(
-            ips,
-            verify_certs=True,
-            timeout=150,
-            max_retries=10,
-            retry_on_timeout=True
+            ips, 
+            ca_certs=ca_certs_path, 
+            max_retries=10, 
+            retry_on_timeout=True, 
+            basic_auth=('elastic', es_passwd)
         )
         self.index = index
         logging.basicConfig(
@@ -55,7 +57,7 @@ class Retriever():
     def embed_query(self, query):
         return self.model.encode(query, show_progress_bar=True)
     
-    def search_elastic_dense(self, query, approach="knn"):
+    def search_elastic_dense(self, query, how_many, approach="knn"):
         # embed the query using the instructor model
         query_emb = self.embed_query(
             [[self.instruction,query]]
@@ -63,29 +65,32 @@ class Retriever():
         if approach == "knn":
             res = self.es.search(
                 index=self.index,
-                knn={"field": "fos_vector", "query_vector": query_emb.tolist(), "k": 10, "num_candidates": 100}
+                body={
+                    "size": how_many,
+                    "query": {
+                        "knn": {
+                            "field": "fos_vector",
+                            "query_vector": query_emb.tolist()[0],
+                            "num_candidates": 50
+                        }
+                    },
+                    "_source": [
+                        "level_1",
+                        "level_2",
+                        "level_3",
+                        "level_4",
+                        "level_4_id",
+                        "level_5_id",
+                        "level_5",
+                        "level_6"
+                    ]
+                } 
             )
-            return res
+            return res.body["hits"]["hits"]
         elif approach == "elastic":
             return self.search_elastic(query) # this simply searches by text
         elif approach == "cosine":
-            script_query = {
-                "script_score": {
-                    "query": {"match_all": {}},
-                    "script": {
-                        "source": "cosineSimilarity(params.query_vector, doc['fos_vector']) + 1.0",
-                        "params": {"query_vector": query_emb},
-                    }
-                }
-            }
-            res = self.es.search(
-                index=self.index,
-                body={
-                    "size": 10,
-                    "query": script_query
-                }
-            )
-            return res
+            raise NotImplementedError('Cosine is not implemented yet')
         else:
             raise NotImplementedError('Only knn, elastic and cosine are implemented')
 
