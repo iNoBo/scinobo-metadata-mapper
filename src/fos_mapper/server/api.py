@@ -10,7 +10,6 @@ import traceback
 import os
 import importlib.resources
 import json
-import argparse
 
 from typing import Union
 from fastapi import FastAPI, HTTPException
@@ -26,18 +25,14 @@ from enum import Enum
 def load_json(path):
     with open(path, "r") as f:
         return json.load(f)
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="FoS Taxonomy Mapper API")
-    parser.add_argument("--es_passwd", type=str, required=True, help="Elastic search password.")
-    parser.add_argument("--ca_certs", type=str, required=True, help="Path to the ca certs.")
-    return parser.parse_args()
-
-args = parse_args()
-
-ES_PASSWD = args.es_passwd
-CA_CERTS_PATH = args.ca_certs
+###########################
+# args
+ES_PASSWD = os.getenv("ES_PASSWD")
+CA_CERTS_PATH = os.getenv("CA_CERTS_PATH")
+DEVICE = os.getenv("DEVICE")
+ES_HOST = os.getenv("ES_HOST")
+ES_PORT = os.getenv("ES_PORT")
+###########################
 DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
 MODEL_ARTEFACTS_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "model_artefacts")
 LOGGING_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "logs")
@@ -51,11 +46,11 @@ fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, "fos_taxonomy_instr
 # and reveice all the variables as arguments or from a yaml file.
 retriever = Retriever(
     ips = [
-        "https://localhost:9200"
+        f"https://{ES_HOST}:{ES_PORT}"
     ],
     index="fos_taxonomy_01_embed",
     embedding_model="hkunlp/instructor-xl",
-    device="cuda",
+    device=DEVICE,
     instruction=fos_taxonomy_instruction['query_instruction'],
     cache_dir=MODEL_ARTEFACTS_PATH,
     log_path=LOGGING_PATH,
@@ -100,6 +95,7 @@ class MappedResults(BaseModel):
     level_5_id: str
     level_5: str
     level_6: str
+    score: float
   
     
 class MapperInferRequestResponse(BaseModel):
@@ -168,10 +164,23 @@ def infer_mapper(request_data: MapperInferRequest):
             query=request_data['text'],
             approach=request_data['approach'].value
         )
+        retrieved_results = [
+            {
+                "level_1": hit["_source"]["level_1"],
+                "level_2": hit["_source"]["level_2"],
+                "level_3": hit["_source"]["level_3"],
+                "level_4": hit["_source"]["level_4"],
+                "level_4_id": hit["_source"]["level_4_id"],
+                "level_5_id": hit["_source"]["level_5_id"],
+                "level_5": hit["_source"]["level_5"],
+                "level_6": hit["_source"]["level_6"],
+                "score": hit["_score"]   
+            } for hit in res
+        ]
         ret = {
             "id": request_data['id'],
             "text": request_data['text'],
-            "retrieved_results": res
+            "retrieved_results": retrieved_results
         }
         LOGGER.info(f"Response data: {ret}") # this is formatted based on the BaseModel classes
         return MapperInferRequestResponse(**ret)

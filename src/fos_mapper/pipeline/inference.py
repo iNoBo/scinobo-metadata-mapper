@@ -65,29 +65,32 @@ class Retriever():
         if approach == "knn":
             res = self.es.search(
                 index=self.index,
-                knn={"field": "fos_vector", "query_vector": query_emb.tolist(), "k": 10, "num_candidates": 100}
+                body={
+                    "size": 10,
+                    "query": {
+                        "knn": {
+                            "field": "fos_vector",
+                            "query_vector": query_emb.tolist()[0],
+                            "num_candidates": 50
+                        }
+                    },
+                    "_source": [
+                        "level_1",
+                        "level_2",
+                        "level_3",
+                        "level_4",
+                        "level_4_id",
+                        "level_5_id",
+                        "level_5",
+                        "level_6"
+                    ]
+                } 
             )
-            return res
+            return res.body["hits"]["hits"]
         elif approach == "elastic":
             return self.search_elastic(query) # this simply searches by text
         elif approach == "cosine":
-            script_query = {
-                "script_score": {
-                    "query": {"match_all": {}},
-                    "script": {
-                        "source": "cosineSimilarity(params.query_vector, doc['fos_vector']) + 1.0",
-                        "params": {"query_vector": query_emb},
-                    }
-                }
-            }
-            res = self.es.search(
-                index=self.index,
-                body={
-                    "size": 10,
-                    "query": script_query
-                }
-            )
-            return res
+            raise NotImplementedError('Cosine is not implemented yet')
         else:
             raise NotImplementedError('Only knn, elastic and cosine are implemented')
 
