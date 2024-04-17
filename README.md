@@ -26,14 +26,14 @@ docker build -t scinobo-fos-mapper .
 
 To run the Docker container, create an environment file with the following values:
 - ES_PASSWD: the password to the elastic installation
-- CA_CERTS_PATH: the path the certification for elastic
+- CA_CERTS_PATH: the path to the certification for elastic
 - DEVICE: "cuda" or "cpu"
 - ES_HOST: the ip of the elastic installation
 - ES_PORT: the port of the elastic installation
 
 ### Server:
 ```bash
-docker run --env-file "path_to_the_env_file" --rm --gpus all -p 1990:1990 scinobo-fos-mapper uvicorn fos_mapper.server.api:app --host 0.0.0.0 --port 1990
+docker run --env-file <path to the env file> -i -d --name scinobo-fos-mapper-docker --rm --network host --gpus all -p 1990:1990 -v <path to the certs in host>:/certs/ scinobo-fos-mapper uvicorn fos_mapper.server.api:app --host 0.0.0.0 --port 1990
 ```
 
 This will serve the uvicorn server of `api.py` which supports the `/infer_mapper` endpoint.

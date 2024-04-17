@@ -1,6 +1,8 @@
 FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
 
 RUN chmod 1777 /tmp
+RUN mkdir /certs
+RUN chmod 1777 /certs
 
 WORKDIR /app
 
