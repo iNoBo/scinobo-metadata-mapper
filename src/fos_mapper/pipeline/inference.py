@@ -31,21 +31,29 @@ class Retriever():
         embedding_model,
         instruction,
         log_path,
-        ca_certs_path,
-        es_passwd
+        es_passwd,
+        ca_certs_path=None
     ):
         self.device = device
         self.stop_ws = stopwords.words('english')
         self.stop_ws.extend(['may', 'could'])
         self.model = INSTRUCTOR(embedding_model, cache_folder=cache_dir, device=self.device)
         self.instruction = instruction
-        self.es = Elasticsearch(
-            ips, 
-            ca_certs=ca_certs_path, 
-            max_retries=10, 
-            retry_on_timeout=True, 
-            basic_auth=('elastic', es_passwd)
-        )
+        if ca_certs_path is None:
+            self.es = Elasticsearch(
+                ips, 
+                max_retries=10, 
+                retry_on_timeout=True, 
+                basic_auth=('elastic', es_passwd)
+            )
+        else:
+            self.es = Elasticsearch(
+                ips, 
+                ca_certs=ca_certs_path, 
+                max_retries=10, 
+                retry_on_timeout=True, 
+                basic_auth=('elastic', es_passwd)
+            )
         self.index = index
         logging.basicConfig(
             filename=f'{log_path}/retriever.log', # TODO add self.logger path
@@ -63,28 +71,25 @@ class Retriever():
             [[self.instruction,query]]
         )
         if approach == "knn":
+            # this approach is for the versions previous to 8.x
             res = self.es.search(
                 index=self.index,
-                body={
+                body = {
                     "size": how_many,
                     "query": {
-                        "knn": {
-                            "field": "fos_vector",
-                            "query_vector": query_emb.tolist()[0],
-                            "num_candidates": 50
+                        "script_score": {
+                            "query": {
+                                "match_all": {}
+                            },
+                            "script": {
+                                "source": "cosineSimilarity(params.query_vector, 'fos_vector') + 1.0",
+                                "params": {
+                                    "query_vector": query_emb.tolist()[0]
+                                }
+                            }
                         }
-                    },
-                    "_source": [
-                        "level_1",
-                        "level_2",
-                        "level_3",
-                        "level_4",
-                        "level_4_id",
-                        "level_5_id",
-                        "level_5",
-                        "level_6"
-                    ]
-                } 
+                    }
+                }
             )
             return res.body["hits"]["hits"]
         elif approach == "elastic":

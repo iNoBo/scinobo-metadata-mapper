@@ -18,7 +18,8 @@ def test_echo():
     payload = {
         "id": "10.18653/v1/w19-5032",
         "text": "quantum algebra",
-        "approach": "knn"
+        "approach": "knn",
+        "k": 10
     }
     response = client.post("/echo", json=payload)
     assert response.status_code == 200
