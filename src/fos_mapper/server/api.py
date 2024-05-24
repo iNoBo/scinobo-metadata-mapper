@@ -27,6 +27,11 @@ from functools import lru_cache
 def load_json(path):
     with open(path, "r") as f:
         return json.load(f)
+
+
+@lru_cache # if you plan to use the settings in multiple places, you can cache them
+def get_settings():
+    return Settings()
 ###########################
 ###########################
 DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
@@ -37,7 +42,9 @@ setup_root_logger()
 LOGGER = logging.getLogger(__name__)
 LOGGER.info("FoS Taxonomy Mapper Api initialized")
 
-fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, "fos_taxonomy_instruction_0.1.0.json"))
+settings = get_settings() # settings for the app
+
+fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_instruction_{settings.fos_taxonomy_version}.json"))
 
 # declare classes for input-output and error responses
 class ApproachName(Enum):
@@ -75,6 +82,7 @@ class MappedResults(BaseModel):
     level_4_id: str
     level_5_id: str
     level_5: str
+    level_5_name: str
     level_6: str
     score: float
   
@@ -86,12 +94,6 @@ class MapperInferRequestResponse(BaseModel):
     retrieved_results: list[Union[MappedResults, None]] = []
 
 
-@lru_cache # if you plan to use the settings in multiple places, you can cache them
-def get_settings():
-    return Settings()
-
-
-settings = get_settings() # settings for the app
 # the FastAPI app
 app = FastAPI()
 
@@ -99,15 +101,15 @@ app = FastAPI()
 # and reveice all the variables as arguments or from a yaml file.
 retriever = Retriever(
     ips = [
-        f"https://{settings.es_host}:{settings.es_port}"
+        f"https://{settings.es_host}:{settings.es_port}" if settings.ca_certs_path is not None else f"http://{settings.es_host}:{settings.es_port}"
     ],
-    index="fos_taxonomy_01_embed",
+    index=settings.index_name,
     embedding_model="hkunlp/instructor-xl",
     device=settings.device,
     instruction=fos_taxonomy_instruction['query_instruction'],
     cache_dir=MODEL_ARTEFACTS_PATH,
     log_path=LOGGING_PATH,
-    ca_certs_path=settings.ca_certs_path,
+    ca_certs_path=settings.ca_certs_path if settings.ca_certs_path is not None else None,
     es_passwd=settings.es_passwd
 )
 
@@ -180,6 +182,7 @@ def infer_mapper(request_data: MapperInferRequest):
                 "level_4_id": hit["_source"]["level_4_id"],
                 "level_5_id": hit["_source"]["level_5_id"],
                 "level_5": hit["_source"]["level_5"],
+                "level_5_name": hit["_source"]["level_5_name"],
                 "level_6": hit["_source"]["level_6"],
                 "score": hit["_score"]   
             } for hit in res
