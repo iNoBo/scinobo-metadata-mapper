@@ -18,7 +18,8 @@ args = [
     "--batch_size", "16",
     "--device", "cuda",
     "--cache_folder", "/storage1/sotkot/llm_models",
-    "--delete_index", "False"
+    "--delete_index", "False",
+    "--fos_taxonomy_version", "v0.1.1"
 ]
 """
 
@@ -41,15 +42,23 @@ MODEL_ARTEFACTS = os.path.join(importlib.resources.files(__package__.split(".")[
 
 
 class Indexer:
-    def __init__(self, index_name, ca_certs_path, es_passwd, ips, mapping=None, batch_size=1000, delete_index=False, mapping_type=None):
+    def __init__(self, index_name, es_passwd, ips, mapping=None, batch_size=1000, delete_index=False, mapping_type=None, ca_certs_path=None):
         """ ELASTIC CONNECTION """
-        self.es = Elasticsearch(
-            ips, 
-            ca_certs=ca_certs_path, 
-            max_retries=10, 
-            retry_on_timeout=True, 
-            basic_auth=('elastic', es_passwd)
-        )
+        if ca_certs_path is None:
+            self.es = Elasticsearch(
+                ips, 
+                max_retries=10, 
+                retry_on_timeout=True, 
+                basic_auth=('elastic', es_passwd)
+            )
+        else:
+            self.es = Elasticsearch(
+                ips, 
+                ca_certs=ca_certs_path, 
+                max_retries=10, 
+                retry_on_timeout=True, 
+                basic_auth=('elastic', es_passwd)
+            )
         self.index_name = index_name
         self.mapping = mapping
         self.mapping_type = mapping_type
@@ -123,11 +132,12 @@ def parse_args():
     parser.add_argument("--es_host", type=str, help="Elasticsearch host.")
     parser.add_argument("--es_port", type=str, help="Elasticsearch port.")
     parser.add_argument("--es_passwd", type=str, help="Elasticsearch password.")
-    parser.add_argument("--ca_certs", type=str, help="Path to the ca certs.")
+    parser.add_argument("--ca_certs", type=str, help="Path to the ca certs.", default=None)
     parser.add_argument("--device", type=str, help="The type of the device")
     parser.add_argument("--cache_folder", type=str, help="Cache folder to store the embeddings.")
     parser.add_argument("--delete_index", type=lambda x:bool(distutils.util.strtobool(x)), default=False, help="Delete the index if it exists.")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size to embed the data.")
+    parser.add_argument("--fos_taxonomy_version", type=str, help="Version of the fos taxonomy.")
     return parser.parse_args()
 
 
@@ -169,17 +179,34 @@ def main():
     es_port = args.es_port
     es_passwd = args.es_passwd
     ca_certs_path = args.ca_certs
+    fos_taxonomy_version = args.fos_taxonomy_version
     ################
     # load data
-    fos_taxonomy = load_json(os.path.join(DATA_PATH, "fos_taxonomy_0.1.0.json"))
-    fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, "fos_taxonomy_instruction_0.1.0.json"))
-    fos_taxonomy_mapping = load_json(os.path.join(DATA_PATH, "fos_taxonomy_mapping_0.1.0.json"))
+    fos_taxonomy = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_{fos_taxonomy_version}.json"))
+    fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_instruction_{fos_taxonomy_version}.json"))
+    fos_taxonomy_mapping = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_mapping_{fos_taxonomy_version}.json"))
+    ################
+    # if the fos_taxonomy is a dict, convert it to a list by flattening the values
+    if isinstance(fos_taxonomy, dict):
+        fos_taxonomy = [
+            {
+                "level_1": v["level_1"].lower(),
+                "level_2": v["level_2"].lower(),
+                "level_3": v["level_3"].lower(),
+                "level_4": v["level_4"].lower(),
+                "level_4_id": v["level_4_id"],
+                "level_5_id": v["level_5_id"],
+                "level_5": v["level_5"].lower(),
+                "level_6": v["level_6"].lower(),
+                "level_5_name": v["l5_name"].lower()
+            } for value in fos_taxonomy.values() for v in value
+        ]
     ################
     indexer = Indexer(
         index_name=index_name,
         es_passwd=es_passwd,
         ca_certs_path=ca_certs_path,
-        ips=[f"https://{es_host}:{es_port}"],
+        ips=[f"https://{es_host}:{es_port}"] if ca_certs_path is not None else [f"http://{es_host}:{es_port}"],
         mapping=fos_taxonomy_mapping,
         delete_index=delete_index
     )
@@ -209,6 +236,7 @@ def main():
                 "level_4_id": b["level_4_id"],
                 "level_5_id": b["level_5_id"],
                 "level_5": b["level_5"],
+                "level_5_name": b["level_5_name"],
                 "level_6": b["level_6"],
                 "fos_vector": e.tolist()
             } for b, e in zip(batch, data_embeddings)
