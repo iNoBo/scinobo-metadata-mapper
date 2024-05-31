@@ -23,7 +23,7 @@ jobs:
         name: Build and push Docker image
         with:
           image: intelligencenoborders/scinobo-taxonomy-mapper  # Confirm this is your image name
-          tags: v0.1.0, latest  # This is the Docker tag
+          tags: v0.1.1, latest  # This is the Docker tag
           registry: docker.io  # Ensure this is your Docker registry
           dockerfile: Dockerfile  # Dockerfile to use
           username: ${{ secrets.DOCKER_USERNAME }}  # Docker username
