@@ -93,7 +93,7 @@ class Retriever():
             )
             return res.body["hits"]["hits"]
         elif approach == "elastic":
-            return self.search_elastic(query) # this simply searches by text
+            return self.search_elastic(query, how_many=how_many) # this simply searches by text
         elif approach == "cosine":
             raise NotImplementedError('Cosine is not implemented yet')
         else:
@@ -109,17 +109,17 @@ class Retriever():
         sim_mt = torch.mm(a_norm, b_norm.transpose(0, 1))
         return sim_mt
     
-    def search_elastic(self, query, how_many=100, token_threshold=200):
+    def search_elastic(self, query, how_many=100):
         self.logger.debug('original query: {}'.format(query))
         qq = query
-        for c in '~`@#$%^&*()_+=\'{}][:;"\\|΄<>,.?/':
+        for c in '~`@#$%^&*()_+=\'{}][:;"\\|΄<>,.?/': # this removes special chars, that we can specify
             qq = qq.replace(c, ' ')
         qq = ' '.join([w for w in qq.split() if w.lower() not in stop_ws][:900])
         self.logger.debug('processed query: {}'.format(qq))
         the_shoulds = [
             {
                 "match": {
-                    "text": {
+                    "level_6": {
                         "query": qq,
                         "boost": 1, 'minimum_should_match': "100%"
                     }
@@ -127,7 +127,7 @@ class Retriever():
             },
             {
                 "match_phrase": {
-                    "text": {
+                    "level_6": {
                         "query": qq,
                         "boost": 1, "slop": 2
                     }
@@ -135,19 +135,19 @@ class Retriever():
             },
             {
                 "match_phrase": {
-                    "text": {
+                    "level_6": {
                         "query": qq,
                         "boost": 1, "slop": 4
                     }
                 }
             },
         ]
-        if len(qq.split())>5:
+        if len(qq.split())>5: # if the phrase is large enough
             the_shoulds.extend(
                 [
                     {
                         "match": {
-                            "text": {
+                            "level_6": {
                                 "query": qq,
                                 "boost": 1, 'minimum_should_match': "80%"
                             }
@@ -155,7 +155,7 @@ class Retriever():
                     },
                     {
                         "match": {
-                            "text": {
+                            "level_6": {
                                 "query": qq,
                                 "boost": 1, 'minimum_should_match': "60%"
                             }
@@ -163,7 +163,7 @@ class Retriever():
                     },
                     {
                         "match": {
-                            "text": {
+                            "level_6": {
                                 "query": qq,
                                 "boost": 1, 'minimum_should_match': "40%"
                             }
@@ -171,7 +171,7 @@ class Retriever():
                     },
                     {
                         "match": {
-                            "text": {
+                            "level_6": {
                                 "query": qq,
                                 "boost": 1, 'minimum_should_match': "30%"
                             }
@@ -181,15 +181,9 @@ class Retriever():
             )
         bod     = {"size" : how_many, "query": {"bool": {"should": the_shoulds, "minimum_should_match": 1}}}
         ####################################################################################################
-        # res         = self.es.search(index=self.index, doc_type=self.doc_type, body=bod, request_timeout=120)
         res         = self.es.search(index=self.index, body=bod, request_timeout=120)
-        res         = [
-            [x['_source']['text'], x['_score'], x['_id']]
-            for x in res['hits']['hits']
-            if len(x['_source']['text'].split())<=token_threshold
-        ]
         ####################################################################################################
-        return res
+        return res["hits"]["hits"]
 
     def clean_sent(self, sent):
         return re.sub('\(.+?\)', '', sent)
