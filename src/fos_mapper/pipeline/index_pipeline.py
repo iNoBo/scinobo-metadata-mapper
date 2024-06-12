@@ -48,7 +48,8 @@ class Indexer:
             self.es = Elasticsearch(
                 ips, 
                 max_retries=10, 
-                retry_on_timeout=True, 
+                retry_on_timeout=True,
+                request_timeout=150,
                 basic_auth=('elastic', es_passwd)
             )
         else:
@@ -57,6 +58,7 @@ class Indexer:
                 ca_certs=ca_certs_path, 
                 max_retries=10, 
                 retry_on_timeout=True, 
+                request_timeout=150,
                 basic_auth=('elastic', es_passwd)
             )
         self.index_name = index_name
@@ -106,7 +108,7 @@ class Indexer:
                     flag = False
                 except Exception as e:
                     print(e)
-                    if 'ConnectionTimeout' in str(e):
+                    if 'ConnectionTimeout' in str(e) or 'Connection timed out' in str(e):
                         print('Retrying')
                     else:
                         flag = False
@@ -182,12 +184,12 @@ def main():
     fos_taxonomy_version = args.fos_taxonomy_version
     ################
     # load data
-    fos_taxonomy = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_{fos_taxonomy_version}.json"))
+    fos_taxonomy_in = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_{fos_taxonomy_version}.json"))
     fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_instruction_{fos_taxonomy_version}.json"))
     fos_taxonomy_mapping = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_mapping_{fos_taxonomy_version}.json"))
     ################
     # if the fos_taxonomy is a dict, convert it to a list by flattening the values
-    if isinstance(fos_taxonomy, dict):
+    if isinstance(fos_taxonomy_in, dict):
         fos_taxonomy = [
             {
                 "level_1": v["level_1"].lower(),
@@ -199,7 +201,22 @@ def main():
                 "level_5": v["level_5"].lower(),
                 "level_6": v["level_6"].lower(),
                 "level_5_name": v["l5_name"].lower()
-            } for value in fos_taxonomy.values() for v in value
+            } for value in fos_taxonomy_in.values() for v in value
+        ]
+    else:
+        # lower case all the values
+        fos_taxonomy = [
+            {
+                "level_1": b["level_1"].lower(),
+                "level_2": b["level_2"].lower(),
+                "level_3": b["level_3"].lower(),
+                "level_4": b["level_4"].lower(),
+                "level_4_id": b["level_4_id"],
+                "level_5_id": b["level_5_id"],
+                "level_5": b["level_5"].lower(),
+                "level_6": b["level_6"].lower(),
+                "level_5_name": b["level_5_name"].lower() if "level_5_name" in b else b['l5_name']
+            } for b in fos_taxonomy_in
         ]
     ################
     indexer = Indexer(
@@ -223,7 +240,11 @@ def main():
         data = [
             [
                 fos_taxonomy_instruction["embed_instruction"],
-                f"{b['level_2']}/{b['level_3']}/{b['level_4']}/{b['level_6'].replace(' ---- ', ', ')}"    
+                f"{b['level_2']}/{b['level_3']}/{b['level_4']}/{b['level_6'].replace(' ---- ', ', ')}"
+                if b['level_6'] != "n/a" 
+                else f"{b['level_2']}/{b['level_3']}/{b['level_4']}" 
+                if b['level_4'] != "n/a" 
+                else f"{b['level_2']}/{b['level_3']}" if b['level_3'] != "n/a" else f"{b['level_2']}"
             ] for b in batch
         ]
         data_embeddings = compute_embeddings(model, data)
