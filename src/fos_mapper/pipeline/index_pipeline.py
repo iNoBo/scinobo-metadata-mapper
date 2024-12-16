@@ -32,8 +32,7 @@ import importlib.resources
 from tqdm import tqdm
 from elasticsearch.helpers import bulk
 from elasticsearch import Elasticsearch
-from InstructorEmbedding import INSTRUCTOR
-
+from sentence_transformers import SentenceTransformer
 
 ##############################
 DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
@@ -140,6 +139,7 @@ def parse_args():
     parser.add_argument("--delete_index", type=lambda x:bool(distutils.util.strtobool(x)), default=False, help="Delete the index if it exists.")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size to embed the data.")
     parser.add_argument("--fos_taxonomy_version", type=str, help="Version of the fos taxonomy.")
+    parser.add_argument("--index_only_fos_labels", type=bool, help="Whether to index solely the FoS names along with their corresponding levels individually, without including the entire taxonomy paths.", default=False)
     return parser.parse_args()
 
 
@@ -166,7 +166,9 @@ def compute_embeddings(model, documents):
     """
     embeddings = model.encode(documents, show_progress_bar=True)
     return embeddings
-            
+
+def split_into_batches(data:list, batch_size:int):
+    return [data[i:i + batch_size] for i in range(0, len(data), batch_size)]
     
 def main():
     ################
@@ -182,11 +184,17 @@ def main():
     es_passwd = args.es_passwd
     ca_certs_path = args.ca_certs
     fos_taxonomy_version = args.fos_taxonomy_version
+    index_only_fos_labels = args.index_only_fos_labels
     ################
     # load data
     fos_taxonomy_in = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_{fos_taxonomy_version}.json"))
     fos_taxonomy_instruction = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_instruction_{fos_taxonomy_version}.json"))
-    fos_taxonomy_mapping = load_json(os.path.join(DATA_PATH, f"fos_taxonomy_mapping_{fos_taxonomy_version}.json"))
+    mapping_schema_file = (
+        os.path.join(DATA_PATH, f"fos_labels_mapping_{fos_taxonomy_version}.json")
+        if index_only_fos_labels
+        else os.path.join(DATA_PATH, f"fos_taxonomy_mapping_{fos_taxonomy_version}.json")
+    )
+    mapping_schema = load_json(mapping_schema_file)
     ################
     # if the fos_taxonomy is a dict, convert it to a list by flattening the values
     if isinstance(fos_taxonomy_in, dict):
@@ -224,46 +232,65 @@ def main():
         es_passwd=es_passwd,
         ca_certs_path=ca_certs_path,
         ips=[f"https://{es_host}:{es_port}"] if ca_certs_path is not None else [f"http://{es_host}:{es_port}"],
-        mapping=fos_taxonomy_mapping,
+        mapping=mapping_schema,
         delete_index=delete_index
     )
-    # split the taxonomy into batches
-    batches = [fos_taxonomy[i:i + batch_size] for i in range(0, len(fos_taxonomy), batch_size)]
     # init the model
-    model = INSTRUCTOR(
+    model = SentenceTransformer(
         embedding_model, 
         cache_folder=cache_folder if cache_folder is not None else MODEL_ARTEFACTS, 
         device=device
     )
-    for batch in tqdm(batches, desc="Parsing the batches of the taxonomy"):
-        # pack the data for embedding
-        data = [
-            [
-                fos_taxonomy_instruction["embed_instruction"],
-                f"{b['level_2']}/{b['level_3']}/{b['level_4']}/{b['level_6'].replace(' ---- ', ', ')}"
-                if b['level_6'] != "n/a" 
-                else f"{b['level_2']}/{b['level_3']}/{b['level_4']}" 
-                if b['level_4'] != "n/a" 
-                else f"{b['level_2']}/{b['level_3']}" if b['level_3'] != "n/a" else f"{b['level_2']}"
-            ] for b in batch
-        ]
-        data_embeddings = compute_embeddings(model, data)
-        batch_to_index = [
-            {
-                "level_1": b["level_1"],
-                "level_2": b["level_2"],
-                "level_3": b["level_3"],
-                "level_4": b["level_4"],
-                "level_4_id": b["level_4_id"],
-                "level_5_id": b["level_5_id"],
-                "level_5": b["level_5"],
-                "level_5_name": b["level_5_name"],
-                "level_6": b["level_6"],
-                "fos_vector": e.tolist()
-            } for b, e in zip(batch, data_embeddings)
-        ]
-        for doc in batch_to_index:
-            indexer.process_one_dato(doc, op_type="index")
+
+    if index_only_fos_labels:
+        # Create a set of FoS label-level pairs for indexing
+        fos_labels_set = set()
+        for entry in fos_taxonomy:
+            for level in ["level_1", "level_2", "level_3", "level_4", "level_5_name"]:
+                label = entry.get(level)
+                if label != "n/a":
+                    fos_labels_set.add((label, level))
+
+        # Index fos labels seperately
+        batches = split_into_batches(list(fos_labels_set), batch_size)
+        for batch in tqdm(batches, desc="Indexing FoS labels"):
+            data = [[ fos_taxonomy_instruction["embed_instruction"] + b[0] ] for b in batch]
+            data_embeddings = compute_embeddings (model, doc)
+            batch_to_index = [{"fos_label": b[0], "level": b[1], "fos_vector": e.tolist()} for b, e in (batch, data_embeddings)]
+            for doc in batch_to_index:
+                indexer.process_one_dato(doc, op_type="index")
+    else:
+        # Index full fos taxonomy paths
+        batches = split_into_batches(fos_taxonomy, batch_size)
+        for batch in tqdm(batches, desc="Parsing the batches of the taxonomy"):
+            # pack the data for embedding
+            data = [
+                [
+                    fos_taxonomy_instruction["embed_instruction"] + 
+                    f"{b['level_2']}/{b['level_3']}/{b['level_4']}/{b['level_6'].replace(' ---- ', ', ')}"
+                    if b['level_6'] != "n/a" 
+                    else f"{b['level_2']}/{b['level_3']}/{b['level_4']}" 
+                    if b['level_4'] != "n/a" 
+                    else f"{b['level_2']}/{b['level_3']}" if b['level_3'] != "n/a" else f"{b['level_2']}"
+                ] for b in batch
+            ]
+            data_embeddings = compute_embeddings(model, data)
+            batch_to_index = [
+                {
+                    "level_1": b["level_1"],
+                    "level_2": b["level_2"],
+                    "level_3": b["level_3"],
+                    "level_4": b["level_4"],
+                    "level_4_id": b["level_4_id"],
+                    "level_5_id": b["level_5_id"],
+                    "level_5": b["level_5"],
+                    "level_5_name": b["level_5_name"],
+                    "level_6": b["level_6"],
+                    "fos_vector": e.tolist()
+                } for b, e in zip(batch, data_embeddings)
+            ]
+            for doc in batch_to_index:
+                indexer.process_one_dato(doc, op_type="index")
     indexer.upload_to_elk(finished=True)
     
 
