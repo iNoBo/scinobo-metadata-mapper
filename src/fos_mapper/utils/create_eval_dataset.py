@@ -11,33 +11,14 @@ import ast
 from haystack import Pipeline
 from haystack.components.builders.prompt_builder import PromptBuilder
 from haystack_integrations.components.generators.ollama import OllamaGenerator
+from langfuse import Langfuse
+ 
 
 ###################################################
-OLLAMA_HOST = "open-webui"
-OLLAMA_PORT = 1994
+
 #DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
 DATA_PATH = "/workspaces/scinobo-taxonomy-mapper/src/fos_mapper/data"
-PROMPT = """
-You are tasked with generating user requests based on provided Fields of Science (FoS) names. Your goal is to write a request someone might make when searching for publications or bibliographical information that paraphrases or slightly rephrases the FoS name while maintaining its specific context.
 
-**Instructions:**
-1. Avoid using overly broad synonyms that could lead to ambiguity.
-2. Use synonyms, rephrased terms, or acronyms that still directly and clearly point to the provided FoS.
-3. Answer by providing directly the user request.
-
-**Examples:**
-FoS: "Oncology & Carcinogenesis"
-User request: "Find publications on cancer development."
-
-FoS: "Bioethics"
-User request: "Search for studies addressing ethics in medical research."
-
-FoS: "Natural Language Processing"
-User request: "Give me the 10 most impactful papers on NLP."
-
-**Input FoS:** {{query}}
-User request: {}
-"""
 ###################################################
 
 def get_fos_labels_hierarchy(fos_taxonomy_version="v0.1.2", max_labels_per_level: dict = {1: None, 2: 3, 3: 3, 4: 3, 5: 3}):
@@ -124,16 +105,16 @@ def hierarchy_to_dataframe(hierarchy:dict, drop_na:bool=True, drop_duplicates:bo
     return df 
 
 
-def init_query_generator ():
+def init_query_generator (model_name:str=None, prompt:str=None):
     """Initialize a pipeline to run the llm"""
 
     llm = OllamaGenerator(
-                model="llama3.2:3b",
+                model=model_name,
                 url=f"http://{OLLAMA_HOST}:{OLLAMA_PORT}",
                 generation_kwargs = {"temperature": 0.6, "top_k": 40, "top_p": 0.8}
             )
     pipe = Pipeline()
-    pipe.add_component("prompt_builder", PromptBuilder(template=PROMPT))
+    pipe.add_component("prompt_builder", PromptBuilder(template=prompt))
     pipe.add_component("llm", llm)
     pipe.connect("prompt_builder", "llm")
     return pipe
@@ -147,20 +128,65 @@ def generate_queries (fos_labels, pipeline):
         queries.append (result["llm"]["replies"][0].strip ("'"))
     return queries
 
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fos_taxonomy_version", type=str, required=False, help="Version of the fos taxonomy.", default="v0.1.2")
+    parser.add_argument("--prompt_name", type=str, required=False, help= "Langfuse stored prompt name to retrieve for dataset generation.", default="fos_label_evaluation_dataset_generation_prompt_v1.0")
+    parser.add_argument("--model_name", type=str, required=False, help="LLM name for prompting.", default="llama3.2:3b")
     parser.add_argument("--max_labels_per_level", type=str, required=False, help="A dictionary (as a string) specifying the maximum number of FoS labels to include in the dataset at each level.", default= "{1: None, 2: 3, 3: 3, 4: 3, 5: 3}")
     parser.add_argument("--drop_na", type=str, required=False, help="Whether to drop rows with N/A values from the final dataset.", default=True)
     parser.add_argument("--drop_duplicates", type=str, required=False, help="Whether to drop duplicate FoS labels in the dataset.", default=True)
     args = parser.parse_args()
-    
-    hierarchy = get_fos_labels_hierarchy (fos_taxonomy_version = args.fos_taxonomy_version,  max_labels_per_level=ast.literal_eval(args.max_labels_per_level))
-    df = hierarchy_to_dataframe (hierarchy=hierarchy, drop_duplicates=args.drop_duplicates, drop_na=args.drop_na)
-    llm_pipe = init_query_generator()
-    df["query"] = generate_queries(df["label"], llm_pipe)
-    df.reset_index(drop=True)
 
+    # Create a hierarchy for fos taxonomy including only the fos labels (provide a max labels per level limitation if needed).
+    hierarchy = get_fos_labels_hierarchy (fos_taxonomy_version = args.fos_taxonomy_version,  max_labels_per_level=ast.literal_eval(args.max_labels_per_level))
+
+    # Create a dataframe from generated hierarchy.
+    df = hierarchy_to_dataframe (hierarchy=hierarchy, drop_duplicates=args.drop_duplicates, drop_na=args.drop_na)
+
+    # Initialize langfuse client
+    langfuse = Langfuse()
+    # Retrieve prompt from langfuse
+    prompt = langfuse.get_prompt(args.prompt_name)
+
+    # Generate queries given the selected FoS labels and create a column in the dataframe.
+    llm_pipe = init_query_generator(model_name=args.model_name, prompt=prompt)
+    df["query"] = generate_queries(df["FoS_label"], llm_pipe)
+    df.reset_index(drop=True)
+    
+    # Store generated dataset to langfuse for later evaluation.
+    local_items =  [
+
+        {
+            "input": {"query": row["query"]},
+            "expected_output": {
+                "fos_label": row["fos_label"],
+                "level": row["level"]
+            }
+        }
+        for _, row in df.itterows()
+    ]
+
+    langfuse.create_dataset(
+        name="fos_labels_eval_dataset",
+        description="Instances of user query and a single corresponding FoS label.",
+        metadata={
+            "author": "Panos",
+            "date": "2024-12-23",
+            "type": "benchmark"
+        }
+    )
+
+    for item in local_items:
+        langfuse.create_dataset_item(
+            dataset_name="fos_labels_eval_dataset",
+            input=item["input"],
+            expected_output=item["expected_output"]
+        )
+
+    # Save dataset locally as well
     with open (os.path.join (DATA_PATH, f"fos_labels_hierarchy_{args.fos_taxonomy_version}.json"), "w") as fp:
         json.dump (hierarchy, fp, ensure_ascii=False, indent=2)
     
