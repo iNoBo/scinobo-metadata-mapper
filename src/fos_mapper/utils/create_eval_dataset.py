@@ -1,4 +1,4 @@
-# Script to generate a synthetic query-to-FoS (Field of Science) dataset for evaluating the Taxonomy Mapper.
+# Script to generate a synthetic query-to-FoS dataset for evaluation purposes.
 
 import os
 import json
@@ -12,13 +12,17 @@ from haystack import Pipeline
 from haystack.components.builders.prompt_builder import PromptBuilder
 from haystack_integrations.components.generators.ollama import OllamaGenerator
 from langfuse import Langfuse
- 
+from dotenv import load_dotenv
+import os
 
 ###################################################
-
-#DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
-DATA_PATH = "/workspaces/scinobo-taxonomy-mapper/src/fos_mapper/data"
-
+load_dotenv()
+DATA_PATH = os.environ["DATA_PATH"]
+LANGFUSE_PUBLIC_KEY= os.environ["LANGFUSE_PUBLIC_KEY"]
+LANGFUSE_SECRET_KEY= os.environ["LANGFUSE_SECRET_KEY"]
+LANGFUSE_HOST = os.environ["LANGFUSE_HOST"]
+OLLAMA_HOST = os.environ["OLLAMA_HOST"]
+OLLAMA_PORT = os.environ["OLLAMA_PORT"]
 ###################################################
 
 def get_fos_labels_hierarchy(fos_taxonomy_version="v0.1.2", max_labels_per_level: dict = {1: None, 2: 3, 3: 3, 4: 3, 5: 3}):
@@ -93,15 +97,15 @@ def hierarchy_to_dataframe(hierarchy:dict, drop_na:bool=True, drop_duplicates:bo
         current_hierarchy, current_level = to_process.pop()  # Get the next item to process
         for key, value in current_hierarchy.items():
             # Add the current key and its level to the data
-            data.append({"label": key, "level": f"level_{current_level}"})
+            data.append({"fos_label": key, "level": f"level_{current_level}"})
             # Add to the stack only if within the level limit (exclude level 6 and level 5 topics)
             if current_level < 5 and isinstance(value, dict):
                 to_process.append((value, current_level + 1))               
     df = pd.DataFrame(data)
     if drop_na:
-        df = df [df["label"] != "N/A"].reset_index(drop=True)
+        df = df [df["fos_label"] != "N/A"].reset_index(drop=True)
     if drop_duplicates:
-        df = df.drop_duplicates(subset=["label"], keep="first").reset_index(drop=True)
+        df = df.drop_duplicates(subset=["fos_label"], keep="first").reset_index(drop=True)
     return df 
 
 
@@ -134,29 +138,34 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fos_taxonomy_version", type=str, required=False, help="Version of the fos taxonomy.", default="v0.1.2")
     parser.add_argument("--prompt_name", type=str, required=False, help= "Langfuse stored prompt name to retrieve for dataset generation.", default="fos_label_evaluation_dataset_generation_prompt_v1.0")
+    parser.add_argument("--prompt_version", type=str, required=False, default="Version 1")
     parser.add_argument("--model_name", type=str, required=False, help="LLM name for prompting.", default="llama3.2:3b")
+    parser.add_argument("--dataset_name", type=str, required=False, default="fos_labels_eval_dataset")
+    parser.add_argument("--dataset_metadata", type=str, required=False, help="Optional metadata for dataset.", default=None)
     parser.add_argument("--max_labels_per_level", type=str, required=False, help="A dictionary (as a string) specifying the maximum number of FoS labels to include in the dataset at each level.", default= "{1: None, 2: 3, 3: 3, 4: 3, 5: 3}")
-    parser.add_argument("--drop_na", type=str, required=False, help="Whether to drop rows with N/A values from the final dataset.", default=True)
-    parser.add_argument("--drop_duplicates", type=str, required=False, help="Whether to drop duplicate FoS labels in the dataset.", default=True)
     args = parser.parse_args()
 
     # Create a hierarchy for fos taxonomy including only the fos labels (provide a max labels per level limitation if needed).
     hierarchy = get_fos_labels_hierarchy (fos_taxonomy_version = args.fos_taxonomy_version,  max_labels_per_level=ast.literal_eval(args.max_labels_per_level))
 
     # Create a dataframe from generated hierarchy.
-    df = hierarchy_to_dataframe (hierarchy=hierarchy, drop_duplicates=args.drop_duplicates, drop_na=args.drop_na)
+    df = hierarchy_to_dataframe (hierarchy=hierarchy, drop_duplicates=True, drop_na=True)
 
     # Initialize langfuse client
-    langfuse = Langfuse()
-    # Retrieve prompt from langfuse
-    prompt = langfuse.get_prompt(args.prompt_name)
+    langfuse = Langfuse(
+        public_key=LANGFUSE_PUBLIC_KEY,
+        secret_key=LANGFUSE_SECRET_KEY,
+        host=LANGFUSE_HOST
+        )
+    # Retrieve query generation prompt template from langfuse.
+    prompt_template = langfuse.get_prompt(args.prompt_name, version= args.prompt_version, label='')
 
     # Generate queries given the selected FoS labels and create a column in the dataframe.
-    llm_pipe = init_query_generator(model_name=args.model_name, prompt=prompt)
-    df["query"] = generate_queries(df["FoS_label"], llm_pipe)
+    llm_pipe = init_query_generator(model_name=args.model_name, prompt=prompt_template.prompt)
+    df["query"] = generate_queries(df["fos_label"], llm_pipe)
     df.reset_index(drop=True)
     
-    # Store generated dataset to langfuse for later evaluation.
+    # Store generated dataset to langfuse for monitoring.
     local_items =  [
 
         {
@@ -166,19 +175,13 @@ def main():
                 "level": row["level"]
             }
         }
-        for _, row in df.itterows()
+        for _, row in df.iterrows()
     ]
-
     langfuse.create_dataset(
         name="fos_labels_eval_dataset",
         description="Instances of user query and a single corresponding FoS label.",
-        metadata={
-            "author": "Panos",
-            "date": "2024-12-23",
-            "type": "benchmark"
-        }
+        metadata=args.metadata
     )
-
     for item in local_items:
         langfuse.create_dataset_item(
             dataset_name="fos_labels_eval_dataset",
