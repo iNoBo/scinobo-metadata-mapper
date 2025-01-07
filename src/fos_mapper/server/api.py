@@ -11,7 +11,7 @@ import os
 import importlib.resources
 import json
 
-from typing import Union
+from typing import Union, List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,9 +34,9 @@ def get_settings():
     return Settings()
 ###########################
 ###########################
-DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
-MODEL_ARTEFACTS_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "model_artefacts")
-LOGGING_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "logs")
+DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "fos_mapper/data")
+MODEL_ARTEFACTS_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "fos_mapper/model_artefacts")
+LOGGING_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "fos_mapper/logs")
 # init the logger
 setup_root_logger()
 LOGGER = logging.getLogger(__name__)
@@ -54,26 +54,25 @@ class ApproachName(Enum):
     Args:
         Enum (_type_): _description_
     """
-    knn = "knn"
     elastic = "elastic"
     cosine = "cosine"
-    
-    
+
+
 class MapperInferRequest(BaseModel):
     # based on the request config, the request data should contain the following fields
     id: str
     text: str | None = ""
     k: int = 10
-    approach: ApproachName = ApproachName.knn
+    approach: ApproachName = ApproachName.cosine
+    rerank: bool = True
     # add an example for the request data
     model_config = {
         "id": "10.18653/v1/w19-5032",
         "text": "quantum algebra",
-        "approach": "knn"
+        "approach": "cosine"
     }
   
-    
-class MappedResults(BaseModel):
+class MappedFullTaxonomyResults(BaseModel):
     # based on the request config, the response data should contain the following fields
     level_1: str
     level_2: str
@@ -85,13 +84,20 @@ class MappedResults(BaseModel):
     level_5_name: str
     level_6: str
     score: float
-  
-    
+    reranker_score: Optional[float]
+
+class MappedLabelResults (BaseModel):
+    # based on the request config, the response data should contain the following fields
+    fos_label: str
+    level: str
+    score:float
+    reranker_score: Optional[float]
+
 class MapperInferRequestResponse(BaseModel):
     # based on the request config, the response data should contain the following fields
     id: str
-    text: str | None = ""
-    retrieved_results: list[Union[MappedResults, None]] = []
+    text: Optional[str] = ""
+    retrieved_results: List[Optional[Union[MappedFullTaxonomyResults, MappedLabelResults]]] = []
 
 
 # the FastAPI app
@@ -104,7 +110,8 @@ retriever = Retriever(
         f"https://{settings.es_host}:{settings.es_port}" if settings.ca_certs_path is not None else f"http://{settings.es_host}:{settings.es_port}"
     ],
     index=settings.index_name,
-    embedding_model="hkunlp/instructor-xl",
+    embedding_model="nomic-ai/nomic-embed-text-v1.5",
+    reranker_model="BAAI/bge-reranker-v2-m3",
     device=settings.device,
     instruction=fos_taxonomy_instruction['query_instruction'],
     cache_dir=MODEL_ARTEFACTS_PATH,
@@ -139,20 +146,20 @@ def echo(request_data: MapperInferRequest):
     LOGGER.info(f"Request data for echo: {request_data}")
     return request_data.model_dump() 
 
-
+# create an endpoint for inference
 @app.post("/infer_mapper", response_model=MapperInferRequestResponse)
 def infer_mapper(request_data: MapperInferRequest):
     """
-    Infer the field of science mapping of a query based on the embeddings provided by Instructor. 
+    Infer the FoS (Field of science) mapping of a query based on semantic/lexical search.
 
-    Args:
-        request_data (MapperInferRequests): The request data containing the query.
+    Args: request_data (MapperInferRequests): The request data containing the query and other related parameters.
+    If the 'rerank' parameter is set to 'True' (default) the retriever results are reranked by a cross-encoder model.
 
     Returns:
-        MapperInferRequestsResponse: The response data containing the inferred field of studies.
-        We will always return a list of retrieved results since we have no threshold for the similarity.
-        It rests upon the developer to filter the results based on the score returned by the FastAPI.
-        A good threshold would be 0.85.
+    MapperInferRequestsResponse: The response data containing the inferred FoS. 
+    We will always return a list of retrieved results since we have no threshold for the similarity.
+    It rests upon the developer to filter the results based on the score returned by the FastAPI.
+    A good threshold would be 0.85.
     """
     LOGGER.info(f"Request data: {request_data}") # this is formatted based on the BaseModel classes
     try:
@@ -167,26 +174,45 @@ def infer_mapper(request_data: MapperInferRequest):
             }
             LOGGER.info(ret)
             return MapperInferRequestResponse(**ret)
-        # infer the field of studies
-        res = retriever.search_elastic_dense(
+        
+        # Run search on ES index
+        results = retriever.search_elastic(
             query=request_data['text'].lower(),
             how_many=request_data['k'],
             approach=request_data['approach'].value
         )
-        retrieved_results = [
-            {
-                "level_1": hit["_source"]["level_1"],
-                "level_2": hit["_source"]["level_2"],
-                "level_3": hit["_source"]["level_3"],
-                "level_4": hit["_source"]["level_4"],
-                "level_4_id": hit["_source"]["level_4_id"],
-                "level_5_id": hit["_source"]["level_5_id"],
-                "level_5": hit["_source"]["level_5"],
-                "level_5_name": hit["_source"]["level_5_name"],
-                "level_6": hit["_source"]["level_6"],
-                "score": hit["_score"]   
-            } for hit in res
-        ]
+
+        # Rerank retriever hits
+        if request_data['rerank']:
+            results["hits"] = retriever.rerank_hits(
+                query=request_data['text'].lower(),
+                hits=results["hits"])
+
+        retrieved_results = []
+
+        for hit in results["hits"]:
+            if retriever.index_type == "full_taxonomy":
+                    retrieved_results.append (MappedFullTaxonomyResults(
+                    level_1 = hit["_source"]["level_1"],
+                    level_2 = hit["_source"]["level_2"],
+                    level_3 = hit["_source"]["level_3"],
+                    level_4 = hit["_source"]["level_4"],
+                    level_5_name = hit["_source"]["level_5_name"],
+                    level_5 = hit["_source"]["level_5"],
+                    level_6 = hit["_source"]["level_6"],
+                    level_4_id = hit["_source"]["level_4_id"],
+                    level_5_id = hit["_source"]["level_5_id"],
+                    score =  hit["_score"],
+                    reranker_score=hit["_reranker_score"] if  request_data['rerank'] else None  
+                    ))
+        
+            elif retriever.index_type  == "fos_label":
+                    retrieved_results.append (MappedLabelResults(
+                        fos_label = hit["_source"]["fos_label"],
+                        level = hit["_source"]["level"],
+                        score = hit["_score"],
+                        reranker_score=hit["_reranker_score"] if  request_data['rerank'] else None  
+                    ))
         ret = {
             "id": request_data['id'],
             "text": request_data['text'],
@@ -201,4 +227,4 @@ def infer_mapper(request_data: MapperInferRequest):
     
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=1990)
+    uvicorn.run(app, host="0.0.0.0", port=5000)

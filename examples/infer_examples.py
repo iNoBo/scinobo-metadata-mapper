@@ -20,13 +20,13 @@ from pprint import pprint
 def parse_args():
     parser = argparse.ArgumentParser(description="Infer examples using the dense retriever")
     parser.add_argument("--es_passwd", type=str, required=True, help="The password to the elastic installation")
-    parser.add_argument("--ca_certs_path", type=str, required=True, help="The path to the ca certs")
+    parser.add_argument("--ca_certs_path", type=str, required=False, default=None, help="The path to the ca certs")
     parser.add_argument("--device", type=str, default="cuda", help="The device to use for inference")
     parser.add_argument("--es_host", type=str, default="localhost", help="The host of the elastic installation")
     parser.add_argument("--es_port", type=str, default="9200", help="The port of the elastic installation")
     parser.add_argument("--log_path", type=str, default="src/fos_mapper/logs", help="The path to the logs")
     parser.add_argument("--model_artefacts_path", type=str, default="src/fos_mapper/model_artefacts", help="The path to the model artefacts")
-    parser.add_argument("--fos_taxonomy_instruction", type=str, default="src/fos_mapper/data/fos_taxonomy_instruction_0.1.0.json", help="The path to the fos taxonomy instruction")
+    parser.add_argument("--fos_taxonomy_instruction", type=str, default="src/fos_mapper/data/fos_taxonomy_instruction_v0.1.2.json", help="The path to the fos taxonomy instruction")
     return parser.parse_args()
 
 
@@ -41,15 +41,16 @@ def main():
     log_path = args.log_path
     model_artefacts_path = args.model_artefacts_path
     fos_taxonomy_instruction_path = args.fos_taxonomy_instruction
-    # load the taxonomy
+    # load the model instructions
     fos_taxonomy_instruction = json.load(open(fos_taxonomy_instruction_path, "r"))
     # instantiate the retriever
     retriever = Retriever(
         ips = [
-            f"https://{es_host}:{es_port}"
+            f"http://{es_host}:{es_port}"
         ],
-        index="fos_taxonomy_01_embed",
-        embedding_model="hkunlp/instructor-xl",
+        index="fos_taxonomy_labels_02_embed",
+        embedding_model="nomic-ai/nomic-embed-text-v1.5",
+        reranker_model="jinaai/jina-reranker-v1-turbo-en",
         device=device,
         instruction=fos_taxonomy_instruction['query_instruction'],
         cache_dir=model_artefacts_path,
@@ -58,10 +59,11 @@ def main():
         es_passwd=es_passwd
     )
     # infer some examples
-    example_1 = "breast cancer in artificial intelligence"
-    res = retriever.search_elastic_dense(example_1, "knn")
-    pprint(res)
-    
+    example_1 = "find me publications related to food and nutrition"
+    res = retriever.search_elastic(query=example_1, how_many= 2, approach="cosine")
+    reranked_res = retriever.rerank_hits (query=example_1, hits=res["hits"])
+    print (reranked_res)
     
 if __name__ == "__main__":
     main()
+    

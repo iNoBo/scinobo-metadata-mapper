@@ -35,8 +35,10 @@ from elasticsearch import Elasticsearch
 from sentence_transformers import SentenceTransformer
 
 ##############################
-DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
-MODEL_ARTEFACTS = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "model_artefacts")
+#DATA_PATH = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "data")
+#MODEL_ARTEFACTS = os.path.join(importlib.resources.files(__package__.split(".")[0])._paths[0], "model_artefacts")
+DATA_PATH = "/workspaces/scinobo-taxonomy-mapper/src/fos_mapper/data"
+MODEL_ARTEFACTS = "/workspaces/scinobo-taxonomy-mapper/src/fos_mapper/model_artefacts"
 ##############################
 
 
@@ -139,7 +141,7 @@ def parse_args():
     parser.add_argument("--delete_index", type=lambda x:bool(distutils.util.strtobool(x)), default=False, help="Delete the index if it exists.")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size to embed the data.")
     parser.add_argument("--fos_taxonomy_version", type=str, help="Version of the fos taxonomy.")
-    parser.add_argument("--index_only_fos_labels", type=bool, help="Whether to index solely the FoS names along with their corresponding levels individually, without including the entire taxonomy paths.", default=False)
+    parser.add_argument("--index_only_fos_labels", action = "store_true", help="Whether to index solely the FoS names along with their corresponding levels individually, without including the entire taxonomy paths.")
     return parser.parse_args()
 
 
@@ -175,7 +177,7 @@ def main():
     args = parse_args()
     index_name = args.index_name
     embedding_model = args.embedding_model
-    batch_size = args.batch_size # this is for the instructor-xl model
+    batch_size = args.batch_size
     device = args.device
     cache_folder = args.cache_folder
     delete_index = args.delete_index
@@ -237,9 +239,10 @@ def main():
     )
     # init the model
     model = SentenceTransformer(
-        embedding_model, 
+        embedding_model = embedding_model, 
         cache_folder=cache_folder if cache_folder is not None else MODEL_ARTEFACTS, 
-        device=device
+        device=device,
+        trust_remote_code=True
     )
 
     if index_only_fos_labels:
@@ -254,9 +257,10 @@ def main():
         # Index fos labels seperately
         batches = split_into_batches(list(fos_labels_set), batch_size)
         for batch in tqdm(batches, desc="Indexing FoS labels"):
-            data = [[ fos_taxonomy_instruction["embed_instruction"] + b[0] ] for b in batch]
-            data_embeddings = compute_embeddings (model, doc)
-            batch_to_index = [{"fos_label": b[0], "level": b[1], "fos_vector": e.tolist()} for b, e in (batch, data_embeddings)]
+            data = [ fos_taxonomy_instruction["embed_instruction"] + b[0] for b in batch]
+            data_embeddings = compute_embeddings (model, data)
+            batch_to_index = [{"fos_label": b[0], "level": b[1], "fos_vector": e.tolist()} for b, e in zip(batch, data_embeddings)]
+            
             for doc in batch_to_index:
                 indexer.process_one_dato(doc, op_type="index")
     else:

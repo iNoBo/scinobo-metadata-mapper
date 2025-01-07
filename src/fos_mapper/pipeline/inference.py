@@ -8,18 +8,11 @@ NOTE For now we do not pass any credentials. However, in the future this must ch
 -- No args provided this will be called from the FastAPI server.
 """
 
-import re
-import torch
 import logging
 
 from nltk.corpus import stopwords
 from elasticsearch import Elasticsearch
-from InstructorEmbedding import INSTRUCTOR
-
-###############################################################################################
-stop_ws = stopwords.words('english')
-stop_ws.extend(['may', 'could'])
-###############################################################################################
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 class Retriever():
     def __init__(
@@ -29,6 +22,7 @@ class Retriever():
         device,
         cache_dir,
         embedding_model,
+        reranker_model,
         instruction,
         log_path,
         es_passwd,
@@ -37,7 +31,8 @@ class Retriever():
         self.device = device
         self.stop_ws = stopwords.words('english')
         self.stop_ws.extend(['may', 'could'])
-        self.model = INSTRUCTOR(embedding_model, cache_folder=cache_dir, device=self.device)
+        self.embedding_model = SentenceTransformer(embedding_model, cache_folder=cache_dir, device=self.device, trust_remote_code=True)
+        self.reranker_model = CrossEncoder (reranker_model, cache_dir=cache_dir, automodel_args={"torch_dtype": "auto"}, trust_remote_code=True)
         self.instruction = instruction
         if ca_certs_path is None:
             self.es = Elasticsearch(
@@ -60,21 +55,53 @@ class Retriever():
             level=logging.DEBUG,
             format="%(asctime)s;%(levelname)s;%(message)s"
         )
+        self.index_type = self.define_index_mapping_type()
         self.logger = logging.getLogger(__name__)
         
-    def embed_query(self, query):
-        return self.model.encode(query, show_progress_bar=True)
+
+    def define_index_mapping_type (self):
+        """Validate index mapping keys. In our case, an index can either include full taxonomy levels or single FoS labels."""
+
+        mapping = self.es.indices.get_mapping(index=self.index)
+        properties = mapping[self.index]["mappings"]["properties"]
+        type_1_keys = {"fos_label", "level", "fos_vector"}
+        type_2_keys = {
+            "fos_vector", "level_1", "level_2", "level_3", "level_4", 
+            "level_4_id", "level_5", "level_5_id", "level_5_name", "level_6"
+        }
+        index_keys = properties.keys()
+        if index_keys == type_1_keys:
+            return "fos_label"
+        elif index_keys == type_2_keys:
+            return "full_taxonomy"
+        else:
+            raise KeyError(
+                f"Unexpected keys in mapping. Found keys: {index_keys}. "
+                f"Expected either: {type_1_keys} or {type_2_keys}."
+            )
+        
+    def normalize_query (self, query):
+        """Remove punctuations and stop words."""
+
+        for c in '~`@#$%^&*()_+=\'{}][:;"\\|΄<>,.?/':
+            query = query.replace(c, ' ')
+        query = ' '.join([w for w in query.split() if w.lower() not in self.stop_ws][:900])
+        return query
     
-    def search_elastic_dense(self, query, how_many, approach="knn"):
-        # embed the query using the instructor model
-        query_emb = self.embed_query(
-            [[self.instruction,query]]
-        )
-        if approach == "knn":
+    def embed_query(self, query):
+        return self.embedding_model.encode(query, show_progress_bar=True)
+    
+    def search_elastic(self, query, how_many, approach="cosine"):
+        """Run lexical or semantic search on the ES index."""
+
+        query = self.normalize_query(query)
+        query_emb = self.embed_query(self.instruction + query)
+
+        if approach == "cosine":
             # this approach is for the versions previous to 8.x
             res = self.es.search(
                 index=self.index,
-                body = {
+                body={
                     "size": how_many,
                     "query": {
                         "script_score": {
@@ -84,42 +111,40 @@ class Retriever():
                             "script": {
                                 "source": "cosineSimilarity(params.query_vector, 'fos_vector') + 1.0",
                                 "params": {
-                                    "query_vector": query_emb.tolist()[0]
+                                    "query_vector": query_emb.tolist()  # Ensure it is a list
                                 }
                             }
                         }
                     }
                 }
             )
-            return res.body["hits"]["hits"]
+            results = res.body["hits"]
+            results["index_type"] = self.index_type
+            return results
+        
         elif approach == "elastic":
-            return self.search_elastic(query, how_many=how_many) # this simply searches by text
-        elif approach == "cosine":
-            raise NotImplementedError('Cosine is not implemented yet')
+            return self.run_lexical_search(query,  how_many=how_many) # this simply searches by text
         else:
-            raise NotImplementedError('Only knn, elastic and cosine are implemented')
+            raise NotImplementedError('Only cosine and elastic search approaches are implemented')
 
-    def sim_matrix(self, a, b, eps=1e-8):
-        """
-        added eps for numerical stability
-        """
-        a_n, b_n = a.norm(dim=1)[:, None], b.norm(dim=1)[:, None]
-        a_norm = a / torch.max(a_n, eps * torch.ones_like(a_n))
-        b_norm = b / torch.max(b_n, eps * torch.ones_like(b_n))
-        sim_mt = torch.mm(a_norm, b_norm.transpose(0, 1))
-        return sim_mt
-    
-    def search_elastic(self, query, how_many=100):
+
+    def run_lexical_search(self, query, how_many=100):
+        """Run lexical search on given field name in an ES index."""
+
+        # Define the field name to search.
+        if self.index_type == "full_taxonomy":
+            field_name = "level_6"
+        elif self.index_type == "fos_label":
+            field_name = self.index_type
+
         self.logger.debug('original query: {}'.format(query))
-        qq = query
-        for c in '~`@#$%^&*()_+=\'{}][:;"\\|΄<>,.?/': # this removes special chars, that we can specify
-            qq = qq.replace(c, ' ')
-        qq = ' '.join([w for w in qq.split() if w.lower() not in stop_ws][:900])
-        self.logger.debug('processed query: {}'.format(qq))
+        qq = self.normalize_query(query)
+        
+        self.logger.debug('processed query: {}'.format(query))
         the_shoulds = [
             {
                 "match": {
-                    "level_6": {
+                    field_name: {
                         "query": qq,
                         "boost": 1, 'minimum_should_match': "100%"
                     }
@@ -127,7 +152,7 @@ class Retriever():
             },
             {
                 "match_phrase": {
-                    "level_6": {
+                    field_name: {
                         "query": qq,
                         "boost": 1, "slop": 2
                     }
@@ -135,7 +160,7 @@ class Retriever():
             },
             {
                 "match_phrase": {
-                    "level_6": {
+                    field_name: {
                         "query": qq,
                         "boost": 1, "slop": 4
                     }
@@ -147,7 +172,7 @@ class Retriever():
                 [
                     {
                         "match": {
-                            "level_6": {
+                            field_name: {
                                 "query": qq,
                                 "boost": 1, 'minimum_should_match': "80%"
                             }
@@ -155,7 +180,7 @@ class Retriever():
                     },
                     {
                         "match": {
-                            "level_6": {
+                            field_name: {
                                 "query": qq,
                                 "boost": 1, 'minimum_should_match': "60%"
                             }
@@ -163,7 +188,7 @@ class Retriever():
                     },
                     {
                         "match": {
-                            "level_6": {
+                            field_name: {
                                 "query": qq,
                                 "boost": 1, 'minimum_should_match': "40%"
                             }
@@ -171,7 +196,7 @@ class Retriever():
                     },
                     {
                         "match": {
-                            "level_6": {
+                            field_name: {
                                 "query": qq,
                                 "boost": 1, 'minimum_should_match': "30%"
                             }
@@ -179,11 +204,38 @@ class Retriever():
                     },
                 ]
             )
-        bod     = {"size" : how_many, "query": {"bool": {"should": the_shoulds, "minimum_should_match": 1}}}
-        ####################################################################################################
-        res         = self.es.search(index=self.index, body=bod, request_timeout=120)
-        ####################################################################################################
-        return res["hits"]["hits"]
+        bod = {"size" : how_many,  "query": {"bool": {"should": the_shoulds, "minimum_should_match": 1}}}
+        res = self.es.search(index=self.index, body=bod, request_timeout=120)
+       
+        results = res.body["hits"]
+        results["index_type"] = self.index_type
+        return results
 
-    def clean_sent(self, sent):
-        return re.sub('\(.+?\)', '', sent)
+    def rerank_hits(self, query, hits):
+        """Rerank retrieved results using a Cross Encoder model. Return a sorted list of results with updated scores."""
+        
+        docs = []  
+
+        for hit in hits:
+            if self.index_type == "fos_label":
+                doc = hit["_source"]["fos_label"]
+            else:
+                doc = f"{hit['_source']['level_1']}/{hit['_source']['level_2']}/{hit['_source']['level_3']}/{hit['_source']['level_4']}/{hit['_source']['level_5_name']}"
+            docs.append(doc)
+
+        # Use the Cross Encoder to get reranker scores
+        reranked_hits = self.reranker_model.rank(
+            query=query,
+            documents=docs,
+            return_documents=True, 
+            convert_to_tensor=False,
+            apply_softmax=True
+        )
+        for i, hit in enumerate(reranked_hits):
+            hits[i]["_reranker_score"] = hit["score"]
+
+        sorted_hits = sorted(hits, key=lambda x: x["_reranker_score"], reverse=True)
+
+        return sorted_hits
+
+ 
