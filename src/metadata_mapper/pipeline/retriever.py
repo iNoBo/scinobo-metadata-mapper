@@ -87,43 +87,56 @@ class Retriever():
     def embed_query(self, query):
         """Embed query using the embedding model"""
         return self.embedding_model.encode(query, show_progress_bar=True)
-    
+
     def search_elastic(self, query, how_many, approach="cosine"):
         """Run lexical or semantic search on the ES index."""
 
         query = self.normalize_query(query)
-        query_emb = self.embed_query(self.instruction + query)
-
+        
         if approach == "cosine":
-            # this approach is for the versions previous to 8.x
-            res = self.es.search(
-                index=self.index,
-                body={
-                    "size": how_many,
-                    "query": {
-                        "script_score": {
-                            "query": {
-                                "match_all": {}
-                            },
-                            "script": {
-                                "source": "cosineSimilarity(params.query_vector, 'vector') + 1.0",
-                                "params": {
-                                    "query_vector": query_emb.tolist()  # Ensure it is a list
-                                }
+            results = self.run_dense_search(query, how_many)
+        elif approach == "elastic":
+            results = self.run_lexical_search(query, how_many)
+        elif approach == "hybrid":
+            results = self.run_hybrid_search(query, how_many)
+        else:
+            raise NotImplementedError("Only 'cosine' and 'elastic' search approaches are implemented") 
+        results["index_type"] = self.identify_index_type()
+        return results
+
+    def run_dense_search(self, query, how_many=100):
+        """"""
+
+        query_emb = self.embed_query(self.instruction + query)
+        # this approach is for the versions previous to 8.x
+        res = self.es.search(
+            index=self.index,
+            body={
+                "size": how_many,
+                "query": {
+                    "script_score": {
+                        "query": {
+                            "match_all": {}
+                        },
+                        "script": {
+                            "source": "cosineSimilarity(params.query_vector, 'vector') + 1.0",
+                            "params": {
+                                "query_vector": query_emb.tolist()  # Ensure it is a list
                             }
                         }
                     }
                 }
-            )
-            results = res.body["hits"]
-            results["index_type"] = self.identify_index_type()
-            return results
-        
-        elif approach == "elastic":
-            return self.run_lexical_search(query,  how_many=how_many)
-        
-        raise NotImplementedError("Only 'cosine' and 'elastic' search approaches are implemented")
+            }
+        )
+        results = res.body["hits"]
+        return results
 
+    def run_hybrid_search (self, query, how_many=100):
+        """Run a hybrid search combining both dense and lexical retrieval and reranking the results."""
+        
+        hybrid_hits = self.run_lexical_search(query, how_many = how_many)["hits"] + self.run_dense_search(query, how_many=how_many)["hits"]
+        reranked_hits =  self.rerank_hits(query=query, hits=hybrid_hits, how_many=how_many)
+        return {"hits": reranked_hits}
 
     def run_lexical_search(self, query, how_many=100):
         """Run keyword search on given field name string."""
@@ -141,66 +154,50 @@ class Retriever():
                 "match": {
                     field_name: {
                         "query": normalized_query,
-                        "boost": 1, 'minimum_should_match': "60%"
-                    }
+                        "boost": 1,
+                        "minimum_should_match": "50%"
+                                            }
                 }
             },
             {
                 "match_phrase": {
                     field_name: {
                         "query": normalized_query,
-                        "boost": 1, "slop": 2
+                        "boost": 1,
+                        "slop": 5  # Allow up to 5 extra words between terms
                     }
                 }
             },
             {
-                "match_phrase": {
+                "term": {
                     field_name: {
-                        "query": normalized_query,
-                        "boost": 1, "slop": 4
+                        "value": normalized_query,
+                        "boost": 2 
                     }
                 }
-            },
-        ]
-        # if the query phrase is long enough:
-        if len(normalized_query.split())>5:
-            the_shoulds.extend(
-                [
-                    {
-                        "match": {
-                            field_name: {
-                                "query": normalized_query,
-                                "boost": 1, 'minimum_should_match': "80%"
-                            }
+            }]
+        # Add additional clauses for long queries
+        if len(normalized_query.split()) > 5:
+            the_shoulds.extend([
+                {
+                    "match": {
+                        field_name: {
+                            "query": normalized_query,
+                            "boost": 1,
+                            "minimum_should_match": "60%" 
                         }
-                    },
-                    {
-                        "match": {
-                            field_name: {
-                                "query": normalized_query,
-                                "boost": 1, 'minimum_should_match': "60%"
-                            }
+                    }
+                },
+                {
+                    "match": {
+                        field_name: {
+                            "query": normalized_query,
+                            "boost": 1,
+                            "minimum_should_match": "40%" 
                         }
-                    },
-                    {
-                        "match": {
-                            field_name: {
-                                "query": normalized_query,
-                                "boost": 1, 'minimum_should_match': "40%"
-                            }
-                        }
-                    },
-                    {
-                        "match": {
-                            field_name: {
-                                "query": normalized_query,
-                                "boost": 1, 'minimum_should_match': "30%"
-                            }
-                        }
-                    },
-                ]
-            )
-
+                    }
+                }
+            ])
         bod = {"size" : how_many,  "query": {"bool": {"should": the_shoulds, "minimum_should_match": 1}}}
         res = self.es.search(index=self.index, body=bod, request_timeout=120)
         results = res.body["hits"]
@@ -208,7 +205,7 @@ class Retriever():
 
         return results
 
-    def rerank_hits(self, query, hits):
+    def rerank_hits(self, query, hits, how_many):
         """Rerank retriever results using a cross-encoder Reranker. Return a sorted list of results based on the Reranker scores."""
 
         field_name = self.identify_index_type()
@@ -229,7 +226,5 @@ class Retriever():
         for i, hit in enumerate(reranked_hits):
             hits[i]["_reranker_score"] = hit["score"]
 
-        sorted_hits = sorted(hits, key=lambda x: x["_reranker_score"], reverse=True)
+        sorted_hits = sorted(hits, key=lambda x: x["_reranker_score"], reverse=True)[:how_many + 1]
         return sorted_hits
-
- 

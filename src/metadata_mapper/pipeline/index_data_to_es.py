@@ -137,20 +137,37 @@ def index_affiliations (data, indexer, model, instructions):
      Process and store affiliation names to Elasticsearch.
      Index entry fields: 
         {
-            "affiliation: str",
-            "original_name: str",
-            "vector: ndarray"
+            "affiliation": str",
+            "full_name": str,
+            "uncleaned_name": str,
+            "type": str,
+            "vector": ndarray"
         }
     """
 
     affiliations = []
     # Convert data into structured index entries
     for entry in data: 
-        affiliations.append ({
-                    "affiliation": entry["cleaned"].lower(),
-                    "original_name": entry["original"].lower(),
-                })
-                
+        affiliations.append (
+                {
+                    "affiliation": entry["cleaned"],
+                    "full_name": None,
+                    "uncleaned_name": entry["original"],
+                    "type": "full_name"
+                }
+                )
+        acronyms = set ([acronym for acronym in entry["acronyms"]])
+        if len (acronyms) != 0:
+            for acronym in acronyms:
+                affiliations.append (
+                    {
+                        "affiliation": acronym.lower(),
+                        "full_name": entry["cleaned"],
+                        "uncleaned_name": entry["original"],
+                        "type": "acronym"
+
+                    }
+                )
     # Split data into batches for processing
     batches = split_into_batches(affiliations, indexer.batch_size)
 
