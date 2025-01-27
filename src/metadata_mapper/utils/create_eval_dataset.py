@@ -161,8 +161,32 @@ def create_venue_names_dataset (data, llm_pipe, num_of_examples):
     df.reset_index(drop=True)
     return df 
 
-def create_affiliation_dataset (data, llm_pipe, num_of_examples):
-    return
+def create_affiliation_dataset(data, llm_pipe, num_of_examples):
+
+    data_to_df = []
+    acronyms_data_to_df = []
+
+    for d in data:
+        if len(d["acronyms"]) != 0:
+            d["label"] = d["acronyms"][0]
+            acronyms_data_to_df.append(d)
+        else:
+            d["label"] = d["cleaned"]
+            data_to_df.append(d)
+    
+    acronym_dataset_examples = random.sample(acronyms_data_to_df, k=min(num_of_examples, len(acronyms_data_to_df)))
+    dataset_examples = random.sample(data_to_df, k=min(num_of_examples, len(data_to_df)))
+
+    df_acronyms = pd.DataFrame(acronym_dataset_examples)
+    df = pd.DataFrame(dataset_examples)
+
+    df["query"] = llm_pipe.generate_queries(df["label"])
+    df_acronyms["query"] = llm_pipe.generate_queries(df_acronyms["label"])
+
+    df.reset_index(drop=True, inplace=True)
+    df_acronyms.reset_index(drop=True, inplace=True)
+
+    return df, df_acronyms
         
 def save_dataset (langfuse_instance, dataset, dataset_name, dataset_description=""):
 
@@ -217,12 +241,17 @@ def main():
     # create_dataset 
     if args.data_file_prefix == "fos_taxonomy":
         dataset = create_fos_labels_dataset(data = data, llm_pipe = llm_pipe)
+        save_dataset(langfuse_instance=langfuse, dataset=acronyms_dataset, dataset_name=args.dataset_name)
+
     elif args.data_file_prefix == "publication_venues":
         dataset = create_venue_names_dataset(data = data, llm_pipe = llm_pipe, num_of_examples=200)
-    else:
-        raise ValueError ("Only fos_taxonomy and publication_venues are currently supported.")
-    # save dataset
-    save_dataset(langfuse_instance=langfuse, dataset=dataset, dataset_name = args.dataset_name)
+        save_dataset(langfuse_instance=langfuse, dataset=acronyms_dataset, dataset_name=args.dataset_name)
+
+    elif args.data_file_prefix == "affiliations":
+        dataset, acronyms_dataset = create_affiliation_dataset(data = data, llm_pipe = llm_pipe, num_of_examples=100)
+        for d in [dataset, acronyms_dataset]:
+            save_dataset(langfuse_instance=langfuse, dataset=dataset, dataset_name=f"{args.dataset_name}_main")
+            save_dataset(langfuse_instance=langfuse, dataset=acronyms_dataset, dataset_name=f"{args.dataset_name}_acronyms")
 
 if __name__ == "__main__":
     main()
