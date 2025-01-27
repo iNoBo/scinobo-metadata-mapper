@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.2.2-cuda11.8-cudnn8-runtime
 
 RUN chmod 1777 /tmp
 RUN mkdir /certs
@@ -11,7 +11,9 @@ COPY requirements.txt /app/requirements.txt
 
 # COPY DESCRIPTIONS
 # install dependencies
-RUN pip install -r requirements.txt
+RUN pip install --upgrade pip
+RUN pip install uv
+RUN uv pip install --system -r requirements.txt
 
 # Download everything from NLTK
 RUN python -m nltk.downloader punkt
