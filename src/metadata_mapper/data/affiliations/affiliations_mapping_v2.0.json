@@ -1,0 +1,50 @@
+{
+    "settings": {
+        "number_of_shards": 8,
+        "number_of_replicas": 0
+    },
+    "mappings": {
+        "properties": {
+            "affiliation" : {
+                "type" : "text",
+                "fields" : {
+                    "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                    }
+                }
+            },
+            "full_name" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "uncleaned_name" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "type" : {
+                "type" : "text",
+                "fields" : {
+                  "keyword" : {
+                    "type" : "keyword",
+                    "ignore_above" : 256
+                  }
+                }
+            },
+            "vector": {
+                "type": "dense_vector",
+                "dims": 768
+            }
+        }
+    }
+}
