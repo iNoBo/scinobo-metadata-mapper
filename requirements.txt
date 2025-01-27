@@ -9,8 +9,9 @@ sentence_transformers==3.3.1
 gradio==4.31.4
 seaborn==0.13.2
 pandas==2.2.3
-haystack-ai==2.8.0
 huggingface_hub==0.25.0
 einops==0.8.0
 fastparquet>=2024.11.0
 pyarrow==18.1.0
+haystack-ai==2.8.0
+ollama==0.4.6
