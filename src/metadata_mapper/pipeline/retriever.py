@@ -208,13 +208,15 @@ class Retriever():
     def rerank_hits(self, query, hits, how_many):
         """Rerank retriever results using a cross-encoder Reranker. Return a sorted list of results based on the Reranker scores."""
 
+        # find the field for which we are going to rerank the hits
         field_name = self.identify_index_type()
         docs = [hit["_source"].get(field_name) for hit in hits]
 
-        # If no hits are returned, return empty list
+        # If no hits are returned from the retriever, return empty list
         if len (docs) == 0:
             return docs
-            
+
+        # rerank retrieved hits    
         reranked_hits = self.reranker_model.rank(
             query=query,
             documents=docs,
@@ -226,5 +228,5 @@ class Retriever():
         for i, hit in enumerate(reranked_hits):
             hits[i]["_reranker_score"] = hit["score"]
 
-        sorted_hits = sorted(hits, key=lambda x: x["_reranker_score"], reverse=True)[:how_many + 1]
+        sorted_hits = sorted(hits, key=lambda x: x["_reranker_score"], reverse=True)[:how_many]
         return sorted_hits
