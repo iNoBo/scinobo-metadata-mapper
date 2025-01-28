@@ -100,12 +100,12 @@ class Retriever():
         elif approach == "hybrid":
             results = self.run_hybrid_search(query, how_many)
         else:
-            raise NotImplementedError("Only 'cosine' and 'elastic' search approaches are implemented") 
+            raise NotImplementedError("Only 'cosine', 'elastic' and 'hybrid' search approaches are currently implemented") 
         results["index_type"] = self.identify_index_type()
         return results
 
     def run_dense_search(self, query, how_many=100):
-        """"""
+        """Run semantic search based on dense vectors similarity."""
 
         query_emb = self.embed_query(self.instruction + query)
         # this approach is for the versions previous to 8.x
@@ -149,14 +149,23 @@ class Retriever():
         self.logger.debug('original query: {}'.format(query))
         self.logger.debug('Normalized query: {}'.format(normalized_query))
 
+        # Adjust min_should_match based on query length
+        query_terms = len(normalized_query.split())
+        if query_terms <= 3:
+            min_should_match = "75%"
+        elif query_terms <= 5:
+            min_should_match = "50%"
+        else:
+            min_should_match = "30%"
+
         the_shoulds = [
             {
                 "match": {
                     field_name: {
                         "query": normalized_query,
                         "boost": 1,
-                        "minimum_should_match": "50%"
-                                            }
+                        "minimum_should_match": min_should_match
+                    }
                 }
             },
             {
@@ -172,19 +181,21 @@ class Retriever():
                 "term": {
                     field_name: {
                         "value": normalized_query,
-                        "boost": 2 
+                        "boost": 2
                     }
                 }
-            }]
+            }
+        ]
+
         # Add additional clauses for long queries
-        if len(normalized_query.split()) > 5:
+        if query_terms > 5:
             the_shoulds.extend([
                 {
                     "match": {
                         field_name: {
                             "query": normalized_query,
                             "boost": 1,
-                            "minimum_should_match": "60%" 
+                            "minimum_should_match": "60%"
                         }
                     }
                 },
@@ -193,12 +204,22 @@ class Retriever():
                         field_name: {
                             "query": normalized_query,
                             "boost": 1,
-                            "minimum_should_match": "40%" 
+                            "minimum_should_match": "40%"
                         }
                     }
                 }
             ])
-        bod = {"size" : how_many,  "query": {"bool": {"should": the_shoulds, "minimum_should_match": 1}}}
+
+        bod = {
+            "size": how_many,
+            "query": {
+                "bool": {
+                    "should": the_shoulds,
+                    "minimum_should_match": 1 
+                }
+            }
+        }
+
         res = self.es.search(index=self.index, body=bod, request_timeout=120)
         results = res.body["hits"]
         results["index_type"] = field_name
