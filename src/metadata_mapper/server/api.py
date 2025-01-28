@@ -83,7 +83,9 @@ class MappedVenueResults(BaseModel):
 
 class MappedAffiliationsResults(BaseModel):
     affiliation: Optional[str] = None
-    original_name: Optional[str] = None
+    aff_type: Optional[str] = None
+    full_name: Optional[str] = None
+    uncleaned_name: Optional[str] = None
     score: float
     reranker_score: Optional[float]
 
@@ -136,7 +138,7 @@ def perform_search(request_data: MapperSearchRequest, retriever: Retriever, inde
 
         # Rerank (if requested)
         if request_data.rerank:
-            results["hits"] = retriever.rerank_hits(query=request_data.text.lower(), hits=results["hits"])
+            results["hits"] = retriever.rerank_hits(query=request_data.text.lower(), hits=results["hits"], how_many=request_data.k)
         
         # Format results
         if data_type == "fos_taxonomy":
@@ -165,7 +167,9 @@ def perform_search(request_data: MapperSearchRequest, retriever: Retriever, inde
             retrieved_results = [
                 MappedAffiliationsResults(
                     affiliation=hit["_source"].get("affiliation"),
-                    original_name=hit["_source"].get("original_name"),
+                    aff_type = hit["_source"].get("type"),
+                    full_name = hit["_source"].get("full_name"),
+                    uncleaned_name=hit["_source"].get("uncleaned_name"),
                     score=hit["_score"],
                     reranker_score=hit.get("_reranker_score"),
                 )
@@ -220,7 +224,7 @@ def search_publication_venues(
 
 @app.post("/search/affiliations", response_model=MapperInferRequestResponse)
 def search_affiliations(
-    request_data: MapperSearchRequest, index="affiliations_embed_v1.0", version="v1.0"
+    request_data: MapperSearchRequest, index="affiliation_names_embed_v2.0", version="v2.0"
     ):
     
     "Infer the affiliation (e.g., University) mapping of a query. The response data contains the top k most similar affiliation names."
