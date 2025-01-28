@@ -168,3 +168,6 @@ src/metadata_mapper/logs
 src/metadata_mapper/data/eval_results
 src/metadata_mapper/data/datasets
 src/metadata_mapper/model_artefacts
+src/metadata_mapper/data/eval_results
+
+src/metadata_mapper/data/extra
