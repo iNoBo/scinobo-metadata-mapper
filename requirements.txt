@@ -14,4 +14,4 @@ einops==0.8.0
 fastparquet>=2024.11.0
 pyarrow==18.1.0
 haystack-ai==2.8.0
-ollama==0.4.6
+langfuse==2.58.0
