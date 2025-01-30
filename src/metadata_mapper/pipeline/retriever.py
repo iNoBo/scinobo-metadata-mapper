@@ -133,9 +133,19 @@ class Retriever():
 
     def run_hybrid_search (self, query, how_many=100):
         """Run a hybrid search combining both dense and lexical retrieval and reranking the results."""
-        
-        hybrid_hits = self.run_lexical_search(query, how_many = how_many)["hits"] + self.run_dense_search(query, how_many=how_many)["hits"]
-        reranked_hits =  self.rerank_hits(query=query, hits=hybrid_hits, how_many=how_many)
+
+        lexical_hits = self.run_lexical_search(query, how_many = how_many)["hits"]
+        dense_hits = self.run_dense_search(query, how_many=how_many)["hits"]
+
+        self.logger.debug("lexical_hits: {}".format(
+            list({k: v for k, v in (hit.get("_source") or {}).items() if k != "vector"} for hit in lexical_hits)
+        ))
+
+        self.logger.debug("dense_hits: {}".format(
+            list({k: v for k, v in (hit.get("_source") or {}).items() if k != "vector"} for hit in dense_hits)
+        ))
+
+        reranked_hits =  self.rerank_hits(query=query, hits=lexical_hits + dense_hits, how_many=how_many)
         return {"hits": reranked_hits}
 
     def run_lexical_search(self, query, how_many=100):
@@ -221,33 +231,52 @@ class Retriever():
         }
 
         res = self.es.search(index=self.index, body=bod, request_timeout=120)
-        results = res.body["hits"]
-        results["index_type"] = field_name
+        results = res.body.get("hits", {})
 
+        # Replace list elements with empty dicts in case < k hits are retrieved
+        results["hits"].extend([{}] * (how_many - len(results["hits"])))
+        
         return results
 
     def rerank_hits(self, query, hits, how_many):
         """Rerank retriever results using a cross-encoder Reranker. Return a sorted list of results based on the Reranker scores."""
 
-        # find the field for which we are going to rerank the hits
+        # Find the field for which we are going to rerank the hits
         field_name = self.identify_index_type()
-        docs = [hit["_source"].get(field_name) for hit in hits]
+        
+        # Get documents from hits
+        docs = [hit.get("_source", {}).get(field_name, "") for hit in hits]
 
-        # If no hits are returned from the retriever, return empty list
-        if len (docs) == 0:
-            return docs
+        # If no hits are returned from the retriever, return an empty list
+        if not hits:
+            return []
 
-        # rerank retrieved hits    
-        reranked_hits = self.reranker_model.rank(
+        # Rerank retrieved hits
+        reranked_results = self.reranker_model.rank(
             query=query,
-            documents=docs,
-            return_documents=True, 
+            documents=docs,  
+            return_documents=False, 
             convert_to_tensor=False,
             apply_softmax=True
         )
 
-        for i, hit in enumerate(reranked_hits):
-            hits[i]["_reranker_score"] = hit["score"]
+        if len(reranked_results) != len(hits):
+            self.logger.warning("Mismatch between hits and reranked results length")
 
-        sorted_hits = sorted(hits, key=lambda x: x["_reranker_score"], reverse=True)[:how_many]
+        # Assign reranker scores to hits
+        for ranked_doc in reranked_results:
+            index = ranked_doc["corpus_id"]
+            reranker_score = ranked_doc["score"]
+            hits[index]["_reranker_score"] = reranker_score
+
+        # Sort hits based on reranker score
+        sorted_hits = sorted(hits, key=lambda x: x.get("_reranker_score", float('-inf')), reverse=True)
+
+        # Trim the list to the requested number of hits
+        sorted_hits = sorted_hits[:how_many]
+
+        self.logger.debug("reranked_hits: {}".format(
+            [{k: v for k, v in hit.get("_source", {}).items() if k != "vector"} for hit in sorted_hits]
+        ))
+
         return sorted_hits

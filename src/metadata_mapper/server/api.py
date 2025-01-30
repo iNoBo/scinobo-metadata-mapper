@@ -59,6 +59,7 @@ app.add_middleware(
 class ApproachName(Enum):
     elastic = "elastic"
     cosine = "cosine"
+    hybrid = "hybrid"
 
 class MapperSearchRequest(BaseModel):
     id: str
@@ -70,24 +71,24 @@ class MapperSearchRequest(BaseModel):
 class MappedFoSResults(BaseModel):
     fos_label: Optional[str] = None
     level: Optional[str] = None
-    score: float
-    reranker_score: Optional[float]
+    score: float = 0.0
+    reranker_score: Optional[float] = None
 
 class MappedVenueResults(BaseModel):
     venue_name: Optional[str] = None
     full_name: Optional[str] = None
     venue_id: Optional[str] = None
     url: Optional[str] = None
-    score: float
-    reranker_score: Optional[float]
+    score: float = 0.0
+    reranker_score: Optional[float] = None
 
 class MappedAffiliationsResults(BaseModel):
     affiliation: Optional[str] = None
     aff_type: Optional[str] = None
     full_name: Optional[str] = None
     uncleaned_name: Optional[str] = None
-    score: float
-    reranker_score: Optional[float]
+    score: float = 0.0
+    reranker_score: Optional[float] = None
 
 class MapperInferRequestResponse(BaseModel):
     id: str
@@ -114,7 +115,8 @@ def perform_search(request_data: MapperSearchRequest, retriever: Retriever, inde
         # Pass index name
         retriever.index = index
         data, instructions, mapping_schema = load_data_and_instructions(file_prefix=data_type, version=version)
-        # Instruction for generating query embedding
+        # Instruction for generating query embedding 
+        # NOTE: This can be omitted in the future if the instructions prompt remains consistent across all data types."
         retriever.instruction = instructions["query_instruction"]
 
         LOGGER.info(f"Request data: {request_data}")
@@ -144,36 +146,36 @@ def perform_search(request_data: MapperSearchRequest, retriever: Retriever, inde
         if data_type == "fos_taxonomy":
             retrieved_results = [
                 MappedFoSResults(
-                    fos_label=hit["_source"].get("fos_label"),
-                    level=hit["_source"].get("level"),
-                    score=hit["_score"],
-                    reranker_score=hit.get("_reranker_score"),
+                    fos_label=hit.get("_source", {}).get("fos_label"),
+                    level=hit.get("_source", {}).get("level"),
+                    score=hit.get("_score", 0.0),
+                    reranker_score=hit.get("_reranker_score", None),
                 )
-                for hit in results["hits"]
+                for hit in results.get("hits", [])
             ]
         elif data_type== "publication_venues":
             retrieved_results = [
                 MappedVenueResults(
-                    venue_name=hit["_source"].get("venue_name"),
-                    full_name=hit["_source"].get("full_name"),
-                    venue_id = hit ["_source"].get("venue_id"),
-                    url = hit["_source"].get ("url"),
-                    score=hit["_score"],
-                    reranker_score=hit.get("_reranker_score"),
+                    venue_name=hit.get("_source", {}).get("venue_name"),
+                    full_name=hit.get("_source", {}).get("full_name"),
+                    venue_id = hit.get("_source", {}).get("venue_id"),
+                    url = hit.get("_source", {}).get ("url"),
+                    score=hit.get("_score", 0.0),
+                    reranker_score=hit.get("_reranker_score", 0.0),
                 )
-                for hit in results["hits"]
+                for hit in results.get("hits", [])
             ]
         elif data_type == "affiliations":
             retrieved_results = [
                 MappedAffiliationsResults(
-                    affiliation=hit["_source"].get("affiliation"),
-                    aff_type = hit["_source"].get("type"),
-                    full_name = hit["_source"].get("full_name"),
-                    uncleaned_name=hit["_source"].get("uncleaned_name"),
-                    score=hit["_score"],
-                    reranker_score=hit.get("_reranker_score"),
+                    affiliation=hit.get("_source", {}).get("affiliation"),
+                    aff_type = hit.get("_source", {}).get("type"),
+                    full_name = hit.get("_source", {}).get("full_name"),
+                    uncleaned_name=hit.get("_source", {}).get("uncleaned_name"),
+                    score=hit.get("_score", 0.0),
+                    reranker_score=hit.get("_reranker_score", 0.0),
                 )
-                for hit in results["hits"]
+                for hit in results.get("hits", [])
             ]
         else:
             raise ValueError(f"Unsupported data_type: {request_data.data_type}")

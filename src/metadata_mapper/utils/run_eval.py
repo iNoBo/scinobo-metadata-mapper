@@ -27,8 +27,10 @@ def calculate_reciprocal_rank(hits: dict, expected_output: dict, dataset_field: 
     """
     golden_label = expected_output[dataset_field].lower().strip()
     for i, hit in enumerate(hits, start=1):
-        predicted_label = hit[hits_field].strip()
-        if predicted_label == golden_label:
+        predicted_label = hit.get(hits_field, "")
+        if predicted_label is None:
+            predicted_label = ""
+        if predicted_label.lower().strip() == golden_label.lower().strip():
             return 1 / i
 
     return 0.0
@@ -178,7 +180,16 @@ def run_experiment(
                     scores = [hit.get("score", 0) for hit in hits]
                 
                 # Get irrelevant or relevant list (for each hit if it matche the ground truth label then this equals to 1 elsewise 0)
-                labels = [1 if hit.get(hits_field, "").strip().lower() == item.expected_output[label_field].strip().lower() else 0 for hit in hits]
+                labels = []
+                for hit in hits:
+                    hit_value = hit.get(hits_field, "")
+                    if hit_value is None:
+                        hit_value = ""
+                    
+                    if str(hit_value).strip().lower() ==  str(item.expected_output.get(label_field, "")).strip().lower():
+                        labels.append(1)
+                    else:
+                        labels.append(0)
 
                 # Pad scores and labels to ensure they have length k
                 if len(scores) < k:
