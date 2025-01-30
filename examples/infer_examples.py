@@ -29,7 +29,7 @@ def parse_args():
     parser.add_argument("--index", type = str, default="fos_taxonomy_labels_02_embed",help = "index name")
     parser.add_argument("--device", type=str, default="cuda", help="The device to use for inference")
     parser.add_argument("--log_path", type=str, default="src/metadata_mapper/logs", help="The path to the logs")
-    parser.add_argument("--instruction", type=str, default="src/metadata_mapper/data/fos_taxonomy/fos_taxonomy_v0.1.2.json", help="The path to embedding model instruction")
+    parser.add_argument("--instruction", type=str, default="src/metadata_mapper/data/fos_taxonomy/fos_taxonomy_instruction_v0.1.2.json", help="The path to embedding model instruction")
     return parser.parse_args()
 
 def main():
@@ -49,13 +49,20 @@ def main():
         es_passwd=ES_PASSWD
     )
     # infer some examples
-    example_1 = "give me papers and publications about food and nutrition."
-    for approach in ["cosine", "elastic"]:
-        res = retriever.search_elastic (query=example_1, how_many=2, approach=approach)
-        reranked_res = retriever.rerank_hits (query=example_1, hits=res["hits"])
-        print (res)
-        print (reranked_res)
+    example_1 = "Help me find publications for food and nutrition."
+    for approach in ["elastic", "cosine", "hybrid"]:
+        res = retriever.search_elastic(query=example_1, how_many=5, approach=approach)["hits"]
+        
+        if approach != "hybrid":
+            res = retriever.rerank_hits(query=example_1, hits=res, how_many=5)
     
+        hits_without_vector = [
+            {k: v for k, v in (hit.get("_source") or {}).items() if k != "vector"}
+            for hit in res
+        ]
+        print(f"APPROACH:\t{approach}")
+        print(hits_without_vector)
+        
 if __name__ == "__main__":
     main()
     
