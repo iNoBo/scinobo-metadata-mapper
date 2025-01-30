@@ -12,9 +12,9 @@
         "ghcr.io/devcontainers-contrib/features/ruff:1": {}
     },
     "runArgs": [
-        //"--network", "host",
+        "--network", "host",
 	// Uncomment next line to be able to acess ollama.
-	"--network=text2sql_scinobo-network", 
+	//"--network=text2sql_scinobo-network", 
         "--gpus", "all"
     ]
 	// Features to add to the dev container. More info: https://containers.dev/features.
