@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 
 class Retriever():
     """
-    This class provides functionalities for performing dense and lexical retrieval from an Elasticsearch index. 
+    This class provides functionalities for performing dense, lexical or hybrid retrieval from an Elasticsearch index. 
     It supports the retrieval of the most similar hits based on the following index types: "fos label", "venue names", and "affiliation".
     """    
     # NOTE For now we do not pass any credentials. However, in the future this must change.
@@ -48,7 +48,7 @@ class Retriever():
             )
         self.index = index
         logging.basicConfig(
-            #filename=f'{log_path}/retriever.log', # TODO add self.logger path
+            filename=f'{log_path}/retriever.log',
             level=logging.DEBUG,
             format="%(asctime)s; %(levelname)s; %(message)s"
         )
@@ -82,14 +82,16 @@ class Retriever():
         filtered_query = " ".join(
             [w for w in cleaned_query.split() if w.lower() not in self.stop_ws][:900]
         )
+
         return filtered_query
     
     def embed_query(self, query):
         """Embed query using the embedding model"""
+
         return self.embedding_model.encode(query, show_progress_bar=True)
 
     def search_elastic(self, query, how_many, approach="cosine"):
-        """Run lexical or semantic search on the ES index."""
+        """Run search on the ES index. Available approaches: 'cosine', 'elastic', 'hybrid'."""
 
         query = self.normalize_query(query)
         
@@ -102,12 +104,14 @@ class Retriever():
         else:
             raise NotImplementedError("Only 'cosine', 'elastic' and 'hybrid' search approaches are currently implemented") 
         results["index_type"] = self.identify_index_type()
+
         return results
 
     def run_dense_search(self, query, how_many=100):
         """Run semantic search based on dense vectors similarity."""
 
         query_emb = self.embed_query(self.instruction + query)
+        
         # this approach is for the versions previous to 8.x
         res = self.es.search(
             index=self.index,
@@ -129,6 +133,7 @@ class Retriever():
             }
         )
         results = res.body["hits"]
+
         return results
 
     def run_hybrid_search (self, query, how_many=100):
@@ -146,6 +151,7 @@ class Retriever():
         ))
 
         reranked_hits =  self.rerank_hits(query=query, hits=lexical_hits + dense_hits, how_many=how_many)
+
         return {"hits": reranked_hits}
 
     def run_lexical_search(self, query, how_many=100):
@@ -239,7 +245,7 @@ class Retriever():
         return results
 
     def rerank_hits(self, query, hits, how_many):
-        """Rerank retriever results using a cross-encoder Reranker. Return a sorted list of results based on the Reranker scores."""
+        """Rerank retriever results using a Cross-encoder model. Return a sorted list of results based on the Reranker scores."""
 
         # Find the field for which we are going to rerank the hits
         field_name = self.identify_index_type()
