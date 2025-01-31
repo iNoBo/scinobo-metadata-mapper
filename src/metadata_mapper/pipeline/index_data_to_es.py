@@ -17,7 +17,7 @@ ES_PORT= os.environ["ES_PORT"]
 ES_HOST= os.environ["ES_HOST"]
 ES_PASSWD = os.environ["ES_PASSWD"]
 CA_CERTS_PATH = os.environ ["CA_CERTS_PATH"]
-MODEL_ARTEFACTS=os.environ["MODEL_ARTEFACTS"]
+MODEL_ARTEFACTS= os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "model_artefacts")
 ###################################################
 
 def index_fos_taxonomy_labels (data, indexer, model, instructions):
