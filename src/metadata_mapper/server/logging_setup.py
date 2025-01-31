@@ -21,14 +21,8 @@ import importlib.resources
 
 from logging.handlers import RotatingFileHandler
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-
-LOGGING_PATH = os.environ["LOGGING_PATH"]
+LOGGING_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
-
 
 def setup_root_logger():
     """ 

@@ -31,11 +31,11 @@ setup_root_logger()
 settings = get_settings()
 LOGGER = logging.getLogger(__name__)
 LOGGER.info("Metadata Mapper API initialized")
-DATA_PATH = os.environ ["DATA_PATH"]
-LOGGING_PATH = os.environ ["LOGGING_PATH"]
-MODEL_ARTEFACTS_PATH = os.environ ["MODEL_ARTEFACTS"]
 MAPPER_HOST= os.environ["MAPPER_HOST"]
 MAPPER_PORT=int (os.environ["MAPPER_PORT"])
+DATA_PATH =  os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+LOGGING_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+MODEL_ARTEFACTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "model_artefacts")
 ##############################################################################################################
 
 @lru_cache
