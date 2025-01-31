@@ -68,7 +68,7 @@ The arguments provided to each endpoint are as follows:
 To build the Docker image, use the following command:
 
 ```bash
-docker build -t scinobo-fos-mapper .
+docker build -t .
 ```
 
 To run the Docker container, create an **environment file** (`.env`) with the following values:  
@@ -95,7 +95,7 @@ If you want to execute the evaluation scripts, include the following values:
 
 ### Server:
 ```bash
-docker run --env-file <path to the env file> -i -d --name scinobo-fos-mapper-docker --rm --gpus all -p 1990:1990 -v <path to the certs in host>:/certs/ scinobo-metadata-mapper uvicorn metadata_mapper.server.api:app --host 0.0.0.0 --port 1990
+docker run --env-file <path to the env file> -i -d --name scinobo-metadata-mapper-docker --rm --gpus all -p 1990:1990 -v <path to the certs in host>:/certs/ scinobo-metadata-mapper uvicorn src.metadata_mapper.server.api:app --host 0.0.0.0 --port 1990
 ```
 
 This will serve the uvicorn server of `api.py` which supports the 3 endpoints.
