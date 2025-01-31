@@ -59,7 +59,7 @@ The arguments provided to each endpoint are as follows:
   "approach": "<cosine, elastic, hybrid>", // the retrieval approach. When using "cosine", then "dense retrieval" with cosine similarity is performed. When 
   // "elastic" is selected then "lexical retrieval" is performed, using BM25 in the corresponding field name strig. When
   // "hybrid" is selected both dense and lexical retrieval is performed and a Cross-Encoder reranks the joined results list keeping the top_k most relevant results.
-  "rerank": "Wether to rerank the retrieved list of results using a Cross-Encoder model."
+  "rerank": "Whether to rerank the retrieved list of results using a Cross-Encoder model."
 }
 ```
 
