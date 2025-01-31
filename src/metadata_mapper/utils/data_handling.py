@@ -6,7 +6,7 @@ from sentence_transformers import SentenceTransformer
 
 ##############################################
 load_dotenv()
-DATA_PATH = os.environ["DATA_PATH"]
+DATA_PATH =  os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 ##############################################
 
 def load_json(path):
