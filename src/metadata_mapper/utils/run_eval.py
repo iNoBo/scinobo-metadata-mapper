@@ -1,3 +1,4 @@
+from typing import List
 from langfuse import Langfuse
 import requests
 from dotenv import load_dotenv
@@ -18,7 +19,7 @@ MAPPER_PORT = os.environ["MAPPER_PORT"]
 # init langfuse client
 langfuse = Langfuse()
 
-def calculate_reciprocal_rank(hits: dict, expected_output: dict, dataset_field: str, hits_field: str):
+def calculate_reciprocal_rank(hits: List[dict], expected_output: dict, dataset_field: str, hits_field: str):
     """
     Calculate the reciprocal rank for a list of hits returned by the retrieval process.
 
