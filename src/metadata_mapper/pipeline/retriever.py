@@ -92,8 +92,6 @@ class Retriever():
 
     def search_elastic(self, query, how_many, approach="cosine"):
         """Run search on the ES index. Available approaches: 'cosine', 'elastic', 'hybrid'."""
-
-        query = self.normalize_query(query)
         
         if approach == "cosine":
             results = self.run_dense_search(query, how_many)
