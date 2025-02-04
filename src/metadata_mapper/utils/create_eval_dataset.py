@@ -22,12 +22,12 @@ from ollama import Client
 
 ###################################################
 load_dotenv()
-DATA_PATH = os.environ["DATA_PATH"]
 LANGFUSE_PUBLIC_KEY= os.environ["LANGFUSE_PUBLIC_KEY"]
 LANGFUSE_SECRET_KEY= os.environ["LANGFUSE_SECRET_KEY"]
 LANGFUSE_HOST = os.environ["LANGFUSE_HOST"]
 OLLAMA_HOST = os.environ["OLLAMA_HOST"]
 OLLAMA_PORT = os.environ["OLLAMA_PORT"]
+DATA_PATH =  os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 ###################################################
 
 class QueryGenerator():
@@ -211,7 +211,7 @@ def save_dataset (langfuse_instance, dataset, dataset_name, dataset_description=
     with open (os.path.join (DATA_PATH, f"datasets/{dataset_name}.csv"), "w") as fp:
         dataset.to_csv(fp, index=False)
 
-def main():
+def parse_args ():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_file_prefix", type=str, required=True, help="Prefix of the input data files.")
     parser.add_argument("--version", type=str, required=True, help="Version of the input data file.")
@@ -219,7 +219,12 @@ def main():
     parser.add_argument("--prompt_version", type=str, help="Version of the prompt template used.", default="Version 1")
     parser.add_argument("--model_name", type=str, required=False, help="LLM name for prompting.", default="llama3.2:3b")
     parser.add_argument("--dataset_name", type= str, required = True, help= "Name of the dataset.")
-    args = parser.parse_args()
+    
+    return parser.parse_args()
+
+def main():
+
+    args = parse_args()
 
     # Initialize langfuse client
     langfuse = Langfuse(
