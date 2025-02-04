@@ -7,7 +7,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
 import traceback
-import importlib.resources
 
 from typing import Union, List, Optional
 from fastapi import FastAPI, HTTPException, Request
