@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from server.logging_setup import setup_root_logger
 from pipeline.retriever import Retriever
-from utils.data_handling import load_json, load_data_and_instructions
+from utils.data_handling import load_data_and_instructions
 from enum import Enum
 from server.config_settings import Settings
 from functools import lru_cache
