@@ -1,0 +1,4 @@
+{
+    "embed_instruction": "search document: ",
+    "query_instruction": "search_query: "
+}

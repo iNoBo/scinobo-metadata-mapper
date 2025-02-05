@@ -1,4 +1,0 @@
-{
-    "embed_instruction": "Represent the science topic for retrieval: ",
-    "query_instruction": "Represent the Science sentence for retrieving similar science topics: "
-}

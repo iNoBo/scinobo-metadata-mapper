@@ -162,3 +162,13 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Extra
+src/metadata_mapper/logs
+src/metadata_mapper/data/eval_results
+src/metadata_mapper/data/datasets
+src/metadata_mapper/model_artefacts
+src/metadata_mapper/data/eval_results
+src/metadata_mapper/data/extra
+src/metadata_mapper/data/publication_venues/duplicates_with_fullnames.json
+src/metadata_mapper/data/publication_venues/find_duplicates.py
