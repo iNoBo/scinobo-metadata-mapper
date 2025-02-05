@@ -9,12 +9,13 @@ import gradio as gr
 import os
 import requests
 
-# receive the API IP and port and endpoint from env variables
-API_IP = os.getenv("API_IP")
-API_PORT = os.getenv("API_PORT")
-API_ENDPOINT = os.getenv("API_ENDPOINT")
-INDEX_NAME = os.getenv("INDEX_NAME")
-INDEX_VERSION = os.getenv("VERSION")
+################################################################
+API_IP = os.getenv("API_IP", "localhost")
+API_PORT = os.getenv("API_PORT", "5001")
+API_ENDPOINT = os.getenv("API_ENDPOINT", "search/fos_taxonomy")
+INDEX_NAME = os.getenv("INDEX_NAME", "fos_taxonomy_labels_02_embed" )
+INDEX_VERSION = os.getenv("VERSION", "v0.1.2")
+###############################################################
 
 headers = {
     "Accept": "application/json",
@@ -64,13 +65,13 @@ with gr.Blocks() as text_analysis:
                 "cosine"
             ],
             [
-                "1",
+                "2",
                 "immune cell regulation and tolerance",
                 "10",
                 "cosine"
             ],
             [
-                "1",
+                "3",
                 "cellular function and structure",
                 "10",
                 "cosine"
