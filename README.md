@@ -95,7 +95,7 @@ If you want to execute the evaluation scripts, include the following values:
 
 ### Server:
 ```bash
-docker run --env-file <path to the env file> -i -d --name scinobo-metadata-mapper-docker --rm --gpus all -p 1990:1990 -v <path to the certs in host>:/certs/ scinobo-metadata-mapper uvicorn src.metadata_mapper.server.api:app --host 0.0.0.0 --port 1990
+docker run --gpus all --env-file .env -i --rm --name scinobo-metadata-mapper-docker -p 6914:6914 intelligencenoborders/scinobo-metadata-mapper uvicorn metadata_mapper.server.api:app --host 0.0.0.0 --port 6914
 ```
 
 This will serve the uvicorn server of `api.py` which supports the 3 endpoints.
