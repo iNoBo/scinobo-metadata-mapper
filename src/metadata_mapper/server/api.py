@@ -24,18 +24,18 @@ from dotenv import load_dotenv
 def get_settings():
     return Settings()
 
-##############################################################################################################
+#################################################################################################################
 load_dotenv()
 setup_root_logger()
 settings = get_settings()
 LOGGER = logging.getLogger(__name__)
 LOGGER.info("Metadata Mapper API initialized")
 MAPPER_HOST= os.environ["MAPPER_HOST"]
-MAPPER_PORT=int (os.environ["MAPPER_PORT"])
+MAPPER_PORT= int (os.environ["MAPPER_PORT"])
 DATA_PATH =  os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 LOGGING_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 MODEL_ARTEFACTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "model_artefacts")
-##############################################################################################################
+###################################################################################################################
 
 @lru_cache
 def get_settings() -> Settings:
@@ -111,14 +111,13 @@ def perform_search(request_data: MapperSearchRequest, retriever: Retriever, inde
     """
 
     try:
-        # Pass index name
-        retriever.index = index
         data, instructions, mapping_schema = load_data_and_instructions(file_prefix=data_type, version=version)
         # Instruction for generating query embedding 
         # NOTE: This can be omitted in the future if the instructions prompt remains consistent across all data types."
         retriever.instruction = instructions["query_instruction"]
 
         LOGGER.info(f"Request data: {request_data}")
+        LOGGER.info (f"Index name: {index}")
 
         # No text error handling
         if not request_data.text:
@@ -134,12 +133,13 @@ def perform_search(request_data: MapperSearchRequest, retriever: Retriever, inde
         results = retriever.search_elastic(
             query=request_data.text.lower(),
             how_many=request_data.k,
+            index= index,
             approach=request_data.approach.value,
         )
 
         # Rerank (if requested)
         if request_data.rerank:
-            results["hits"] = retriever.rerank_hits(query=request_data.text.lower(), hits=results["hits"], how_many=request_data.k)
+            results["hits"] = retriever.rerank_hits(query=request_data.text.lower(), hits=results["hits"], index = index, how_many=request_data.k)
         
         # Format results
         if data_type == "fos_taxonomy":
@@ -213,7 +213,7 @@ def search_fos_taxonomy(
     ):
     
     "Infer the field of science mapping of a query. The response data contains the top k most similar FoS labels (across all levels)."
-    return perform_search(request_data, retriever, index, version, data_type="fos_taxonomy")
+    return perform_search(request_data=request_data, retriever=retriever, index=index, version=version, data_type="fos_taxonomy")
 
 @app.post("/search/publication_venues", response_model=MapperInferRequestResponse)
 def search_publication_venues(
@@ -221,7 +221,7 @@ def search_publication_venues(
     ):
 
     "Infer the publication venue (e.g., journal) mapping of a query. The response data contains the top k most similar venue names and their corresponding full names."
-    return perform_search(request_data, retriever, index, version, data_type = "publication_venues")
+    return perform_search(request_data=request_data, retriever=retriever, index=index, version=version, data_type = "publication_venues")
 
 @app.post("/search/affiliations", response_model=MapperInferRequestResponse)
 def search_affiliations(
@@ -229,7 +229,7 @@ def search_affiliations(
     ):
     
     "Infer the affiliation (e.g., University) mapping of a query. The response data contains the top k most similar affiliation names."
-    return perform_search(request_data, retriever, index, version, data_type= "affiliations")
+    return perform_search(request_data=request_data, retriever=retriever, index=index, version=version, data_type= "affiliations")
 
 if __name__ == "__main__":
     import uvicorn
