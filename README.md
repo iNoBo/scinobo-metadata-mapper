@@ -57,9 +57,9 @@ The arguments provided to each endpoint are as follows:
   "text": "the query that you want to search",
   "k": "how many retrieved results to return. Required",
   "approach": "<cosine, elastic, hybrid>", // the retrieval approach. When using "cosine", then "dense retrieval" with cosine similarity is performed. When 
-  // "elastic" is selected then "lexical retrieval" is performed, using BM25 in the corresponding field name strig. When
-  // "hybrid" is selected both dense and lexical retrieval is performed and a Cross-Encoder reranks the joined results list keeping the top_k most relevant results.
-  "rerank": "Whether to rerank the retrieved list of results using a Cross-Encoder model."
+  // "elastic" is selected then "lexical retrieval" is performed, using BM25 in the corresponding field name string. When
+  // "hybrid" is selected both dense and lexical retrieval are performed and a Cross-Encoder reranks the joined results list keeping the top_k most relevant results.
+  "rerank": "whether to rerank the retrieved list of results using a Cross-Encoder model."
 }
 ```
 
@@ -75,8 +75,8 @@ To run the Docker container, create an **environment file** (`.env`) with the fo
 
 ### **Required Variables**  
 - `DEVICE`: `"cuda"` or `"cpu"` (sets the processing device)  
-- `ES_HOST`: The IP of the Elasticsearch installation (default: `localhost`)  
-- `ES_PORT`: The port of the Elasticsearch installation (default: `9200`)  
+- `ES_HOST`: The IP of the Elasticsearch installation
+- `ES_PORT`: The port of the Elasticsearch installation
 - `ES_PASSWD`: The password for the Elasticsearch installation  
 - `MAPPER_HOST`: The IP address to run the server  
 - `MAPPER_PORT`: The port to run the server  
