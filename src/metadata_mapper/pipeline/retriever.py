@@ -11,8 +11,7 @@ class Retriever():
     # NOTE For now we do not pass any credentials. However, in the future this must change.
     def __init__(
         self, 
-        ips:str = None, 
-        index:str= None,  
+        ips:str = None,   
         device: str = "cuda",
         cache_dir: str = None,
         embedding_model:str= "nomic-ai/nomic-embed-text-v1.5",
@@ -46,7 +45,6 @@ class Retriever():
                 retry_on_timeout=True, 
                 basic_auth=('elastic', es_passwd)
             )
-        self.index = index
         logging.basicConfig(
             filename=f'{log_path}/retriever.log',
             level=logging.DEBUG,
@@ -54,16 +52,16 @@ class Retriever():
         )
         self.logger = logging.getLogger(__name__)
 
-    def identify_index_type(self):
+    def identify_index_type(self, index=None):
         """
         Check index mapping field keys to identify the index type.
         """
 
-        if not self.index:
+        if not index:
             raise ValueError("Index is None. Please provide a valid index.")
                 
-        mapping = self.es.indices.get_mapping(index=self.index)
-        properties = mapping[self.index]["mappings"]["properties"]
+        mapping = self.es.indices.get_mapping(index=index)
+        properties = mapping[index]["mappings"]["properties"]
         expected_fields = ["fos_label", "affiliation", "venue_name"]
 
         for field in expected_fields:
@@ -90,29 +88,29 @@ class Retriever():
 
         return self.embedding_model.encode(query, show_progress_bar=True)
 
-    def search_elastic(self, query, how_many, approach="cosine"):
+    def search_elastic(self, query, how_many, index = None, approach="cosine"):
         """Run search on the ES index. Available approaches: 'cosine', 'elastic', 'hybrid'."""
         
         if approach == "cosine":
-            results = self.run_dense_search(query, how_many)
+            results = self.run_dense_search(query, index, how_many)
         elif approach == "elastic":
-            results = self.run_lexical_search(query, how_many)
+            results = self.run_lexical_search(query, index, how_many)
         elif approach == "hybrid":
-            results = self.run_hybrid_search(query, how_many)
+            results = self.run_hybrid_search(query, index, how_many)
         else:
             raise NotImplementedError("Only 'cosine', 'elastic' and 'hybrid' search approaches are currently implemented") 
-        results["index_type"] = self.identify_index_type()
+        results["index_type"] = self.identify_index_type(index=index)
 
         return results
 
-    def run_dense_search(self, query, how_many=100):
+    def run_dense_search(self, query, index, how_many=100):
         """Run semantic search based on dense vectors similarity."""
 
         query_emb = self.embed_query(self.instruction + query)
         
         # this approach is for the versions previous to 8.x
         res = self.es.search(
-            index=self.index,
+            index=index,
             body={
                 "size": how_many,
                 "query": {
@@ -134,11 +132,11 @@ class Retriever():
 
         return results
 
-    def run_hybrid_search (self, query, how_many=100):
+    def run_hybrid_search (self, query, index, how_many=100):
         """Run a hybrid search combining both dense and lexical retrieval and reranking the results."""
 
-        lexical_hits = self.run_lexical_search(query, how_many = how_many)["hits"]
-        dense_hits = self.run_dense_search(query, how_many=how_many)["hits"]
+        lexical_hits = self.run_lexical_search(query, index=index, how_many = how_many)["hits"]
+        dense_hits = self.run_dense_search(query, index=index, how_many=how_many)["hits"]
 
         self.logger.debug("lexical_hits: {}".format(
             list({k: v for k, v in (hit.get("_source") or {}).items() if k != "vector"} for hit in lexical_hits)
@@ -148,15 +146,15 @@ class Retriever():
             list({k: v for k, v in (hit.get("_source") or {}).items() if k != "vector"} for hit in dense_hits)
         ))
 
-        reranked_hits =  self.rerank_hits(query=query, hits=lexical_hits + dense_hits, how_many=how_many)
+        reranked_hits =  self.rerank_hits(query=query, hits=lexical_hits + dense_hits, index =index, how_many=how_many)
 
         return {"hits": reranked_hits}
 
-    def run_lexical_search(self, query, how_many=100):
+    def run_lexical_search(self, query, index=None, how_many=100):
         """Run keyword search on given field name string."""
 
         # Define field_name to search 
-        field_name = self.identify_index_type()
+        field_name = self.identify_index_type(index=index)
         normalized_query = self.normalize_query(query)
 
         self.logger.debug('Field name for search: {}'.format(field_name))
@@ -234,7 +232,7 @@ class Retriever():
             }
         }
 
-        res = self.es.search(index=self.index, body=bod, request_timeout=120)
+        res = self.es.search(index=index, body=bod, request_timeout=120)
         results = res.body.get("hits", {})
 
         # Replace list elements with empty dicts in case < k hits are retrieved
@@ -242,11 +240,11 @@ class Retriever():
         
         return results
 
-    def rerank_hits(self, query, hits, how_many):
+    def rerank_hits(self, query, hits, index, how_many):
         """Rerank retriever results using a Cross-encoder model. Return a sorted list of results based on the Reranker scores."""
 
         # Find the field for which we are going to rerank the hits
-        field_name = self.identify_index_type()
+        field_name = self.identify_index_type(index=index)
         
         # Get documents from hits
         docs = [hit.get("_source", {}).get(field_name, "") for hit in hits]

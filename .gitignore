@@ -172,3 +172,5 @@ src/metadata_mapper/data/eval_results
 src/metadata_mapper/data/extra
 src/metadata_mapper/data/publication_venues/duplicates_with_fullnames.json
 src/metadata_mapper/data/publication_venues/find_duplicates.py
+examples/test1.py
+examples/test2.py
