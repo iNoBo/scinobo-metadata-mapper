@@ -112,8 +112,10 @@ def perform_search(request_data: MapperSearchRequest, retriever: Retriever, inde
 
     try:
         data, instructions, mapping_schema = load_data_and_instructions(file_prefix=data_type, version=version)
-        # Instruction for generating query embedding 
-        # NOTE: This can be omitted in the future if the instructions prompt remains consistent across all data types."
+        # NOTE:  If the query instruction varies based on the data type, 
+        # we should change it from being a class variable to an argument to avoid ovewritting it each time.
+        # If the instruction remains the same for all data types,  
+# we    # we can also remove it entirely and use a default value instead
         retriever.instruction = instructions["query_instruction"]
 
         LOGGER.info(f"Request data: {request_data}")
